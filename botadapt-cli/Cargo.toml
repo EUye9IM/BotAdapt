@@ -1,0 +1,11 @@
+[package]
+name = "botadapt-cli"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+botadapt-core = { path = "../botadapt-core" }
+botadapt-qq = { path = "../botadapt-qq" }
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = "0.3"

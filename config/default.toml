@@ -1,0 +1,29 @@
+[core]
+log_level = "info"
+
+# --- 适配器 ---
+[[adapters]]
+type = "qq"
+enabled = true
+[adapters.config]
+# Phase 2: 填充 app_id, token 等
+
+# 声明 channel 与插件绑定
+[[adapters.channels]]
+channel_id = "qq:group:123456"
+plugins = ["echo"]
+
+[[adapters.channels]]
+channel_id = "qq:group:*"
+plugins = ["admin"]
+
+# --- 插件 ---
+[[plugins]]
+name = "echo"
+path = "./plugins/echo.wasm"
+enabled = true
+
+[[plugins]]
+name = "admin"
+path = "./plugins/admin.wasm"
+enabled = true

@@ -1,0 +1,13 @@
+[workspace]
+resolver = "2"
+members = [
+    "botadapt-core",
+    "botadapt-qq",
+    "botadapt-cli",
+    "botadapt-plugin-sdk",
+]
+default-members = [
+    "botadapt-core",
+    "botadapt-qq",
+    "botadapt-cli",
+]
