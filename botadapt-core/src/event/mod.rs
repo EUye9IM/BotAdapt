@@ -28,9 +28,9 @@ pub struct MessageEvent {
 }
 
 impl MessageEvent {
-    pub fn reply_target(&self) -> MessageTarget {
+    pub fn reply_target(&self, platform: &str) -> MessageTarget {
         MessageTarget {
-            platform: String::new(),
+            platform: platform.to_string(),
             user_id: self.user_id.clone(),
             group_id: self.group_id.clone(),
             channel_id: self.channel_id.clone(),

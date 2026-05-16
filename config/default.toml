@@ -14,8 +14,16 @@ channel_id = "qq:group:123456"
 plugins = ["echo"]
 
 [[adapters.channels]]
+channel_id = "qq:group:123456"
+plugins = ["echo", "builtin"]
+
+[[adapters.channels]]
 channel_id = "qq:group:*"
 plugins = ["admin"]
+
+[[adapters.channels]]
+channel_id = "qq:friend:*"
+plugins = ["builtin"]
 
 # --- 插件 ---
 [[plugins]]
