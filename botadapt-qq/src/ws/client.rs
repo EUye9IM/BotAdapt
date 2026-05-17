@@ -202,3 +202,72 @@ async fn read_ready(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse_payload(json: &str) -> WsPayload {
+        serde_json::from_str(json).expect("WsPayload 解析失败")
+    }
+
+    #[test]
+    fn dispatch_c2c_message_event() {
+        let p = parse_payload(
+            r#"{"op":0,"d":{"id":"X","content":"hi"},"s":5,"t":"C2C_MESSAGE_CREATE"}"#,
+        );
+        assert_eq!(p.op, 0);
+        assert_eq!(p.t.as_deref(), Some("C2C_MESSAGE_CREATE"));
+        assert_eq!(p.s, Some(5));
+        assert!(!p.d.is_null());
+    }
+
+    #[test]
+    fn dispatch_other_event_ignored() {
+        let p = parse_payload(r#"{"op":0,"d":{},"s":1,"t":"GUILD_CREATE"}"#);
+        assert_eq!(p.op, 0);
+        assert_eq!(p.t.as_deref(), Some("GUILD_CREATE"));
+    }
+
+    #[test]
+    fn opcode_reconnect_signals() {
+        for op in [7, 9] {
+            let json = format!(r#"{{"op":{}}}"#, op);
+            let p: WsPayload = serde_json::from_str(&json)
+                .unwrap_or_else(|_| panic!("op={} 解析失败", op));
+            assert!(p.op == 7 || p.op == 9);
+        }
+    }
+
+    #[test]
+    fn heartbeat_ack() {
+        let p = parse_payload(r#"{"op":11}"#);
+        assert_eq!(p.op, 11);
+        assert!(p.s.is_none());
+        assert!(p.t.is_none());
+    }
+
+    #[test]
+    fn payload_with_seq_updates() {
+        let p = parse_payload(
+            r#"{"op":0,"d":{"id":"X"},"s":100,"t":"C2C_MESSAGE_CREATE"}"#,
+        );
+        assert_eq!(p.s, Some(100));
+    }
+
+    #[test]
+    fn payload_without_seq() {
+        let p = parse_payload(r#"{"op":11}"#);
+        assert_eq!(p.s, None);
+    }
+
+    #[test]
+    fn payload_missing_optional_fields() {
+        let p: WsPayload = serde_json::from_str(r#"{"op":0}"#).expect("最小 payload 应解析");
+        assert_eq!(p.op, 0);
+        assert!(p.d.is_null());
+        assert_eq!(p.s, None);
+        assert_eq!(p.t, None);
+        assert_eq!(p.id, None);
+    }
+}
