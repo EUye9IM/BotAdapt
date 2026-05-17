@@ -6,24 +6,21 @@ log_level = "info"
 type = "qq"
 enabled = true
 [adapters.config]
-# Phase 2: 填充 app_id, token 等
+app_id = "${QQ_APP_ID}"
+client_secret = "${QQ_CLIENT_SECRET}"
 
 # 声明 channel 与插件绑定
 [[adapters.channels]]
-channel_id = "qq:group:123456"
-plugins = ["echo"]
-
-[[adapters.channels]]
-channel_id = "qq:group:123456"
-plugins = ["echo", "builtin"]
+channel_id = "qq:c2c:*"
+plugins = ["builtin"]
 
 [[adapters.channels]]
 channel_id = "qq:group:*"
-plugins = ["admin"]
+plugins = ["builtin"]
 
 [[adapters.channels]]
-channel_id = "qq:friend:*"
-plugins = ["builtin"]
+channel_id = "qq:group:123456"
+plugins = ["echo"]
 
 # --- 插件 ---
 [[plugins]]
