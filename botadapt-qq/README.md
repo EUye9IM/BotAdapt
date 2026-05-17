@@ -177,6 +177,46 @@ src/
     └── converter.rs    # QQ 原生事件 → 统一 Event 转换
 ```
 
+## 日志
+
+使用 `tracing` + `tracing-subscriber`。日志等级通过配置文件（支持环境变量展开）控制：
+
+```toml
+# config/default.toml
+[core]
+log_level = "${RUST_LOG:-info}"
+```
+
+### 日常使用
+
+```bash
+# info 级别（默认，仅关键节点）
+cargo run
+
+# debug 级别
+RUST_LOG=debug cargo run
+
+# trace 级别（包含原始 WS 消息、心跳等）
+RUST_LOG=trace cargo run
+
+# 仅查看 QQ adapter 的 trace 日志
+RUST_LOG=botadapt_qq=trace cargo run
+
+# 多模块分等级
+RUST_LOG=botadapt_core=warn,botadapt_qq=debug cargo run
+```
+
+### Span 层次
+
+每条消息日志自带 span 层级，自动关联上下文：
+
+```
+event{event_id=..., channel_id=..., platform=qq}
+  ├── plugin{plugin=builtin}
+  └── send_message{platform=qq, user_id=..., text=pong!}
+        └── send_c2c_message{openid=..., text=pong!}
+```
+
 ## TODO - 遗留特性
 
 ### 事件类型
