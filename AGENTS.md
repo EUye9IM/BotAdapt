@@ -100,11 +100,20 @@ Or at minimum `FmtSpan::NEW | FmtSpan::CLOSE` for lifecycle visibility.
 
 ### Subscriber init
 
-Must read `config.core.log_level` and pass to subscriber as default level filter. Use `from_default_env()` for runtime override via `RUST_LOG`:
+Config uses `${RUST_LOG:-info}` expansion for runtime override via env var.
+Requires `tracing-subscriber` with `env-filter` feature (not in default features for 0.3.x).
+
+```toml
+# config/default.toml
+[core]
+log_level = "${RUST_LOG:-info}"
+```
 
 ```rust
-let filter = EnvFilter::try_from_default_env()
-    .unwrap_or_else(|_| EnvFilter::new(&config.core.log_level));
+// botadapt-cli/src/main.rs
+use tracing_subscriber::EnvFilter;
+
+let filter = EnvFilter::new(&config.core.log_level);
 tracing_subscriber::fmt()
     .with_env_filter(filter)
     .with_span_events(FmtSpan::NEW | FmtSpan::CLOSE)
