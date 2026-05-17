@@ -52,7 +52,7 @@ async fn connect_and_dispatch(
     shutdown: &CancellationToken,
 ) -> Result<(), QqError> {
     let span = tracing::info_span!("ws_connect");
-    let _ = span.enter();
+    let _guard = span.enter();
 
     tracing::debug!("获取 Gateway 地址...");
     let url = api.get_gateway_url().await?;
@@ -145,10 +145,6 @@ async fn connect_and_dispatch(
                                     if let Some(event) =
                                         crate::event::converter::c2c_message_create(&payload.d)
                                     {
-                                        tracing::debug!(
-                                            channel_id = %event.channel_id,
-                                            "收到 C2C 消息"
-                                        );
                                         if event_tx.send(event).await.is_err() {
                                             return Ok(());
                                         }
