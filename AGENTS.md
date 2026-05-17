@@ -28,9 +28,17 @@ BotAdapt is a Rust + Tokio async bot framework. Design doc: `DESIGN.md`.
 
 ## Config
 
-TOML format. Plugins bound per-channel inside adapter blocks:
+TOML format. Supports `${ENV_VAR}` environment variable expansion with
+optional defaults `${ENV_VAR:-default}`. Expansion happens after TOML parse
+so values with special characters (quotes, newlines) are safe.
 
 ```toml
+[[adapters]]
+type = "qq"
+[adapters.config]
+app_id = "${QQ_APP_ID}"
+client_secret = "${QQ_CLIENT_SECRET}"
+
 [[adapters.channels]]
 channel_id = "qq:group:123456"
 plugins = ["echo", "admin"]
