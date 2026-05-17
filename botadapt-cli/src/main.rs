@@ -32,23 +32,25 @@ fn builtin_commands() -> Vec<BuiltinCommand> {
 
 #[tokio::main]
 async fn main() {
-    tracing_subscriber::fmt()
-        .with_span_events(FmtSpan::NEW | FmtSpan::CLOSE)
-        .init();
-
     let config_path = env::args()
         .nth(1)
         .unwrap_or_else(|| "config/default.toml".into());
 
-    tracing::info!("加载配置: {}", config_path);
-
     let config = match botadapt_core::config::Config::from_file(&config_path) {
         Ok(c) => c,
         Err(e) => {
-            tracing::error!("配置加载失败: {}", e);
+            eprintln!("配置加载失败: {}", e);
             return;
         }
     };
+
+    let filter = tracing_subscriber::EnvFilter::new(&config.core.log_level);
+    tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .with_span_events(FmtSpan::NEW | FmtSpan::CLOSE)
+        .init();
+
+    tracing::info!("加载配置: {}", config_path);
 
     let mut app = BotApp::from_config(config.clone());
 
