@@ -4,10 +4,12 @@ use uuid::Uuid;
 use crate::api::types::C2cMessageData;
 
 pub fn c2c_message_create(d: &serde_json::Value) -> Option<Event> {
+    tracing::trace!(payload = %d, "开始转换 C2C 消息");
+
     let data: C2cMessageData = serde_json::from_value(d.clone()).ok()?;
     let user_openid = &data.author.user_openid;
 
-    Some(Event {
+    let event = Event {
         id: Uuid::new_v4(),
         channel_id: format!("qq:c2c:{}", user_openid),
         platform: "qq".into(),
@@ -17,13 +19,21 @@ pub fn c2c_message_create(d: &serde_json::Value) -> Option<Event> {
             group_id: None,
             channel_id: None,
             content: MessageContent {
-                text: data.content,
+                text: data.content.clone(),
                 mentions: vec![],
                 attachments: vec![],
             },
             raw: Some(d.clone()),
         }),
-    })
+    };
+
+    tracing::debug!(
+        channel_id = %event.channel_id,
+        content = %data.content.chars().take(50).collect::<String>(),
+        "C2C 消息已转换"
+    );
+
+    Some(event)
 }
 
 fn chrono_now_millis() -> i64 {

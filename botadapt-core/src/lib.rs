@@ -15,6 +15,7 @@ use event::Event;
 use plugin::manager::PluginManager;
 use plugin::Action;
 use tokio::sync::mpsc;
+use tracing::Instrument;
 
 pub struct BotApp {
     #[allow(dead_code)]
@@ -104,23 +105,36 @@ impl BotApp {
         loop {
             tokio::select! {
                 Some(event) = event_rx.recv() => {
-                    tracing::debug!("收到事件: channel={}, platform={}", event.channel_id, event.platform);
+                    let span = tracing::info_span!(
+                        "event",
+                        event_id = %event.id,
+                        channel_id = %event.channel_id,
+                        platform = %event.platform,
+                    );
 
-                    // 1. 查 Channel Binding 表
-                    let plugin_names = self.bindings.resolve(&event.channel_id);
+                    async {
+                        tracing::debug!("收到事件");
 
-                    if plugin_names.is_empty() {
-                        tracing::debug!("channel {} 无绑定插件", event.channel_id);
-                        continue;
+                        let plugin_names = self.bindings.resolve(&event.channel_id);
+                        tracing::debug!(
+                            "channel 绑定解析: {} → {} 个插件",
+                            event.channel_id,
+                            plugin_names.len()
+                        );
+
+                        if plugin_names.is_empty() {
+                            tracing::debug!("channel {} 无绑定插件", event.channel_id);
+                            return;
+                        }
+
+                        let actions = self.plugin_manager.dispatch_parallel(&event, &plugin_names).await;
+
+                        for action in actions {
+                            self.execute_action(action).await;
+                        }
                     }
-
-                    // 2. 并行调用插件
-                    let actions = self.plugin_manager.dispatch_parallel(&event, &plugin_names).await;
-
-                    // 3. 执行所有 Action
-                    for action in actions {
-                        self.execute_action(action).await;
-                    }
+                    .instrument(span)
+                    .await;
                 }
                 _ = self.shutdown.cancelled() => break,
             }
@@ -137,13 +151,25 @@ impl BotApp {
     async fn execute_action(&self, action: Action) {
         match action {
             Action::SendMessage { target, content } => {
-                if let Some(adapter) = self.adapters.get(&target.platform) {
-                    if let Err(e) = adapter.send_message(&target, &content).await {
-                        tracing::error!("发送消息失败: {}", e);
+                let span = tracing::info_span!(
+                    "send_message",
+                    platform = %target.platform,
+                    user_id = %target.user_id,
+                    text = %content.text.chars().take(20).collect::<String>(),
+                );
+                async {
+                    if let Some(adapter) = self.adapters.get(&target.platform) {
+                        if let Err(e) = adapter.send_message(&target, &content).await {
+                            tracing::error!("发送消息失败: {}", e);
+                        } else {
+                            tracing::trace!("发送消息成功");
+                        }
+                    } else {
+                        tracing::warn!("未找到平台 {} 的适配器", target.platform);
                     }
-                } else {
-                    tracing::warn!("未找到平台 {} 的适配器", target.platform);
                 }
+                .instrument(span)
+                .await;
             }
             Action::Noop => {}
         }

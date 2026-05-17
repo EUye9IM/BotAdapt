@@ -2,6 +2,8 @@ use std::env;
 use std::sync::Arc;
 use std::time::Instant;
 
+use tracing_subscriber::fmt::format::FmtSpan;
+
 use botadapt_core::event::MessageContent;
 use botadapt_core::plugin::native::{BuiltinCommand, BuiltinPlugin, CmdContext};
 use botadapt_core::plugin::Action;
@@ -28,7 +30,9 @@ fn builtin_commands() -> Vec<BuiltinCommand> {
 
 #[tokio::main]
 async fn main() {
-    tracing_subscriber::fmt::init();
+    tracing_subscriber::fmt()
+        .with_span_events(FmtSpan::NEW | FmtSpan::CLOSE)
+        .init();
 
     let qq_config = QQConfig {
         app_id: env::var("QQ_APP_ID").expect("QQ_APP_ID 未设置"),

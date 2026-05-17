@@ -17,6 +17,7 @@ pub async fn run(
             _ = shutdown.cancelled() => break,
             _ = tokio::time::sleep(interval) => {
                 let seq = latest_seq.load(Ordering::SeqCst);
+                tracing::trace!(seq, interval_ms, "心跳发送");
                 let payload = serde_json::json!({
                     "op": 1,
                     "d": seq
@@ -46,7 +47,6 @@ mod tests {
             run(tx, h_seq, 50, h_shutdown).await;
         });
 
-        // 第一条心跳应在 ~50ms 内到达
         let msg = tokio::time::timeout(
             std::time::Duration::from_millis(200),
             rx.recv(),
@@ -59,7 +59,6 @@ mod tests {
         assert_eq!(parsed["op"], 1);
         assert_eq!(parsed["d"], 42);
 
-        // 修改 seq 后，下次心跳应携带新值
         seq.store(99, Ordering::SeqCst);
         let msg2 = tokio::time::timeout(
             std::time::Duration::from_millis(200),

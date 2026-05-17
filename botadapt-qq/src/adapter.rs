@@ -52,6 +52,12 @@ impl Adapter for QQAdapter {
         target: &MessageTarget,
         content: &MessageContent,
     ) -> Result<()> {
+        tracing::debug!(
+            user_id = %target.user_id,
+            group_id = ?target.group_id,
+            text = %content.text.chars().take(30).collect::<String>(),
+            "QQAdapter::send_message"
+        );
         self.api
             .send_c2c_message(&target.user_id, &content.text, None)
             .await

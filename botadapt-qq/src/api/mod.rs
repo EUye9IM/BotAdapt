@@ -43,12 +43,18 @@ impl QqApi {
         {
             let cached = self.cached_token.lock().await;
             if let Some(ref token) = *cached {
-                if token.expires_at > Instant::now() {
+                let remaining = token.expires_at.saturating_duration_since(Instant::now());
+                if remaining > Duration::ZERO {
+                    tracing::debug!(
+                        remaining_secs = remaining.as_secs(),
+                        "使用缓存的 AccessToken"
+                    );
                     return Ok(token.access_token.clone());
                 }
             }
         }
 
+        tracing::debug!("获取新的 AccessToken");
         let req = AccessTokenRequest {
             app_id: self.app_id.clone(),
             client_secret: self.client_secret.clone(),
@@ -65,6 +71,7 @@ impl QqApi {
         let body_text = resp.text().await?;
 
         if !status.is_success() {
+            tracing::error!(%status, body = %&body_text[..body_text.len().min(200)], "AccessToken 获取失败");
             return Err(QqError::Auth(format!(
                 "Token 获取失败 HTTP {}: {}",
                 status.as_u16(),
@@ -78,6 +85,11 @@ impl QqApi {
             + Duration::from_secs(token_resp.expires_in as u64)
             - REFRESH_BEFORE;
 
+        tracing::debug!(
+            expires_in = token_resp.expires_in,
+            "AccessToken 已获取"
+        );
+
         let access_token = token_resp.access_token.clone();
         let mut cached = self.cached_token.lock().await;
         *cached = Some(CachedToken {
@@ -88,6 +100,7 @@ impl QqApi {
         Ok(access_token)
     }
 
+    #[tracing::instrument(skip(self))]
     pub async fn get_gateway_url(&self) -> Result<String, QqError> {
         let token = self.get_token().await?;
         let resp = self
@@ -101,6 +114,7 @@ impl QqApi {
         let body_text = resp.text().await?;
 
         if !status.is_success() {
+            tracing::error!(%status, "Gateway 获取失败");
             return Err(QqError::Connection(format!(
                 "Gateway 获取失败 HTTP {}: {}",
                 status.as_u16(),
@@ -109,9 +123,11 @@ impl QqApi {
         }
 
         let gw: GatewayResponse = serde_json::from_str(&body_text)?;
+        tracing::debug!(url = %gw.url, "Gateway 地址已获取");
         Ok(gw.url)
     }
 
+    #[tracing::instrument(skip(self), fields(openid = %openid, text = %content.chars().take(20).collect::<String>()))]
     pub async fn send_c2c_message(
         &self,
         openid: &str,
@@ -136,9 +152,10 @@ impl QqApi {
             .send()
             .await?;
 
-        if !resp.status().is_success() {
-            let status = resp.status();
+        let status = resp.status();
+        if !status.is_success() {
             let text = resp.text().await.unwrap_or_default();
+            tracing::error!(%status, body = %&text[..text.len().min(200)], "发送消息失败");
             return Err(QqError::SendMessage(format!(
                 "HTTP {}: {}",
                 status.as_u16(),
@@ -147,6 +164,7 @@ impl QqApi {
         }
 
         let _msg_resp = resp.json::<SendMessageResponse>().await?;
+        tracing::debug!(%status, "发送消息成功");
         Ok(())
     }
 }

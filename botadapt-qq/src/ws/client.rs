@@ -19,6 +19,7 @@ pub async fn run_loop(
     event_tx: mpsc::Sender<botadapt_core::event::Event>,
     shutdown: CancellationToken,
 ) {
+    let mut retry_count = 0u32;
     loop {
         tokio::select! {
             _ = shutdown.cancelled() => break,
@@ -26,7 +27,14 @@ pub async fn run_loop(
                 match result {
                     Ok(()) => break,
                     Err(e) => {
-                        tracing::warn!("WebSocket 断开: {}, 5秒后重连", e);
+                        retry_count += 1;
+                        tracing::warn!(
+                            retry_count,
+                            "WebSocket 断开: {}, {}秒后重连 (第 {} 次)",
+                            e,
+                            5,
+                            retry_count,
+                        );
                     }
                 }
                 if shutdown.is_cancelled() {
@@ -43,7 +51,13 @@ async fn connect_and_dispatch(
     event_tx: &mpsc::Sender<botadapt_core::event::Event>,
     shutdown: &CancellationToken,
 ) -> Result<(), QqError> {
+    let span = tracing::info_span!("ws_connect");
+    let _ = span.enter();
+
+    tracing::debug!("获取 Gateway 地址...");
     let url = api.get_gateway_url().await?;
+    tracing::debug!(%url, "连接到 Gateway");
+
     let token = api.get_token().await?;
 
     let (ws, _) = connect_async(&url)
@@ -62,17 +76,22 @@ async fn connect_and_dispatch(
         }
     });
 
-    // 1. 读取 Hello
     let hello = read_hello(&mut ws_read).await?;
-    tracing::info!("收到 Hello, heartbeat_interval={}ms", hello.heartbeat_interval);
+    tracing::info!(
+        heartbeat_interval_ms = hello.heartbeat_interval,
+        "收到 Hello"
+    );
 
-    // 2. 发送 Identify
     let id_data = IdentifyData {
         token: format!("QQBot {}", token),
         intents: INTENTS_C2C,
         shard: [0, 1],
         properties: None,
     };
+    tracing::debug!(
+        intents = INTENTS_C2C,
+        "发送 Identify"
+    );
     let id_payload = WsSend {
         op: 2,
         d: Some(serde_json::to_value(&id_data)?),
@@ -83,15 +102,15 @@ async fn connect_and_dispatch(
         .send(serde_json::to_string(&id_payload)?)
         .map_err(|_| QqError::Connection("发送 Identify 失败".into()))?;
 
-    // 3. 读取 Ready
     let ready = read_ready(&mut ws_read).await?;
+    let session_id = ready.session_id.clone();
+    let username = ready.user.username.clone();
     tracing::info!(
-        "QQ 连接就绪, session_id={}, bot={}",
-        ready.session_id,
-        ready.user.username
+        %session_id,
+        bot = %username,
+        "QQ 连接就绪"
     );
 
-    // 4. 启动心跳
     let latest_seq = Arc::new(AtomicI64::new(0));
     let hb_tx = out_tx.clone();
     let hb_seq = latest_seq.clone();
@@ -100,7 +119,6 @@ async fn connect_and_dispatch(
         super::heartbeat::run(hb_tx, hb_seq, hello.heartbeat_interval, hb_shutdown).await;
     });
 
-    // 5. 事件循环
     loop {
         tokio::select! {
             _ = shutdown.cancelled() => break,
@@ -108,8 +126,16 @@ async fn connect_and_dispatch(
                 match msg {
                     Some(Ok(WsMessage::Text(text))) => {
                         let payload: WsPayload = serde_json::from_str(&text)?;
+                        tracing::trace!(
+                            op = payload.op,
+                            s = payload.s,
+                            t = payload.t.as_deref().unwrap_or("-"),
+                            "ws_recv"
+                        );
                         if let Some(s) = payload.s {
+                            let prev = latest_seq.load(Ordering::SeqCst);
                             latest_seq.store(s, Ordering::SeqCst);
+                            tracing::trace!(prev, new = s, "seq 更新");
                         }
 
                         match payload.op {
@@ -119,7 +145,10 @@ async fn connect_and_dispatch(
                                     if let Some(event) =
                                         crate::event::converter::c2c_message_create(&payload.d)
                                     {
-                                        tracing::debug!("收到 C2C 消息: channel={}", event.channel_id);
+                                        tracing::debug!(
+                                            channel_id = %event.channel_id,
+                                            "收到 C2C 消息"
+                                        );
                                         if event_tx.send(event).await.is_err() {
                                             return Ok(());
                                         }
@@ -127,7 +156,10 @@ async fn connect_and_dispatch(
                                 }
                             }
                             7 | 9 => {
-                                tracing::warn!("收到 opcode={}, 准备重连", payload.op);
+                                tracing::warn!(
+                                    opcode = payload.op,
+                                    "收到重连/无效会话信号"
+                                );
                                 return Ok(());
                             }
                             _ => {}
@@ -137,14 +169,13 @@ async fn connect_and_dispatch(
                         let _ = out_tx.send(serde_json::to_string(&serde_json::json!({
                             "op": 11
                         }))?);
-                        // Also handle raw ping by sending pong through the same path
-                        // Note: tokio-tungstenite should auto-pong, but handle explicitly
                     }
                     Some(Ok(WsMessage::Close(_))) | None => {
                         tracing::info!("WebSocket 连接关闭");
                         return Ok(());
                     }
                     Some(Err(e)) => {
+                        tracing::error!("WebSocket 读取错误: {}", e);
                         return Err(QqError::Ws(e.to_string()));
                     }
                     _ => {}
