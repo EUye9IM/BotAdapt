@@ -8,15 +8,22 @@ use botadapt_core::adapter::Adapter;
 use botadapt_core::error::Result;
 use botadapt_core::event::{Event, MessageContent, MessageTarget};
 
-pub struct QQAdapter;
+use crate::api::QqApi;
+use crate::config::QQConfig;
+
+pub struct QQAdapter {
+    api: Arc<QqApi>,
+}
 
 impl QQAdapter {
-    pub fn new() -> Self {
-        Self
+    pub fn new(config: QQConfig) -> Self {
+        Self {
+            api: QqApi::new_arc(&config),
+        }
     }
 
-    pub fn new_arc() -> Arc<dyn Adapter> {
-        Arc::new(Self)
+    pub fn new_arc(config: QQConfig) -> Arc<dyn Adapter> {
+        Arc::new(Self::new(config))
     }
 }
 
@@ -26,9 +33,15 @@ impl Adapter for QQAdapter {
         "qq"
     }
 
-    async fn start(&self, _tx: mpsc::Sender<Event>, shutdown: CancellationToken) -> Result<()> {
+    async fn start(&self, tx: mpsc::Sender<Event>, shutdown: CancellationToken) -> Result<()> {
         tracing::info!("QQ 适配器启动");
-        // Phase 2: 实现 WebSocket 连接 + 事件转换
+
+        let api = self.api.clone();
+        let ws_shutdown = shutdown.clone();
+        tokio::spawn(async move {
+            crate::ws::client::run_loop(api, tx, ws_shutdown).await;
+        });
+
         shutdown.cancelled().await;
         tracing::info!("QQ 适配器关闭");
         Ok(())
@@ -39,8 +52,10 @@ impl Adapter for QQAdapter {
         target: &MessageTarget,
         content: &MessageContent,
     ) -> Result<()> {
-        tracing::info!("QQ 发送消息 -> {}: {}", target.user_id, content.text);
-        // Phase 2: 实现 QQ HTTP API 调用
+        self.api
+            .send_c2c_message(&target.user_id, &content.text, None)
+            .await
+            .map_err(|e| botadapt_core::error::Error::Adapter(e.to_string()))?;
         Ok(())
     }
 }

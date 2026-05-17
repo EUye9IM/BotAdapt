@@ -7,6 +7,7 @@ use botadapt_core::plugin::native::{BuiltinCommand, BuiltinPlugin, CmdContext};
 use botadapt_core::plugin::Action;
 use botadapt_core::BotApp;
 use botadapt_qq::adapter::QQAdapter;
+use botadapt_qq::config::QQConfig;
 
 fn builtin_commands() -> Vec<BuiltinCommand> {
     vec![
@@ -45,12 +46,26 @@ async fn main() {
         }
     };
 
-    let mut app = BotApp::from_config(config);
+    let mut app = BotApp::from_config(config.clone());
 
-    // Phase 2: 根据配置动态加载 Adapter
-    app.register_adapter(QQAdapter::new_arc());
+    for adapter_cfg in &config.adapters {
+        if adapter_cfg.adapter_type == "qq" && adapter_cfg.enabled {
+            if let Some(ref cfg) = adapter_cfg.config {
+                match QQConfig::from_toml_value(cfg) {
+                    Ok(qq_config) => {
+                        app.register_adapter(QQAdapter::new_arc(qq_config));
+                        tracing::info!("QQ 适配器已注册");
+                    }
+                    Err(e) => {
+                        tracing::error!("QQ 适配器配置解析失败: {}", e);
+                    }
+                }
+            } else {
+                tracing::warn!("QQ 适配器缺少 config (app_id/client_secret)");
+            }
+        }
+    }
 
-    // 注册内置命令插件
     let ctx = Arc::new(CmdContext {
         start_time: Instant::now(),
     });
