@@ -19,4 +19,7 @@ pub enum QqError {
 
     #[error("发送消息失败: {0}")]
     SendMessage(String),
+
+    #[error("配置解析失败: {0}")]
+    Config(#[from] toml::de::Error),
 }

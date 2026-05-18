@@ -12,7 +12,6 @@ pub struct QQConfig {
 
 impl QQConfig {
     pub fn from_toml_value(value: &toml::Value) -> Result<Self, QqError> {
-        let json = serde_json::to_value(value)?;
-        Ok(serde_json::from_value(json)?)
+        Ok(value.clone().try_into()?)
     }
 }

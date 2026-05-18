@@ -33,7 +33,7 @@ pub async fn run_loop(
                             retry_count,
                             "WebSocket 断开: {}, {}秒后重连 (第 {} 次)",
                             e,
-                            5,
+                            30,
                             retry_count,
                         );
                     }
@@ -90,10 +90,7 @@ async fn connect_and_dispatch(
         shard: [0, 1],
         properties: None,
     };
-    tracing::debug!(
-        intents = INTENTS_C2C,
-        "发送 Identify"
-    );
+    tracing::debug!(intents = INTENTS_C2C, "发送 Identify");
     let id_payload = WsSend {
         op: 2,
         d: Some(serde_json::to_value(&id_data)?),
@@ -262,8 +259,8 @@ mod tests {
     fn opcode_reconnect_signals() {
         for op in [7, 9] {
             let json = format!(r#"{{"op":{}}}"#, op);
-            let p: WsPayload = serde_json::from_str(&json)
-                .unwrap_or_else(|_| panic!("op={} 解析失败", op));
+            let p: WsPayload =
+                serde_json::from_str(&json).unwrap_or_else(|_| panic!("op={} 解析失败", op));
             assert!(p.op == 7 || p.op == 9);
         }
     }
@@ -278,9 +275,7 @@ mod tests {
 
     #[test]
     fn payload_with_seq_updates() {
-        let p = parse_payload(
-            r#"{"op":0,"d":{"id":"X"},"s":100,"t":"C2C_MESSAGE_CREATE"}"#,
-        );
+        let p = parse_payload(r#"{"op":0,"d":{"id":"X"},"s":100,"t":"C2C_MESSAGE_CREATE"}"#);
         assert_eq!(p.s, Some(100));
     }
 
