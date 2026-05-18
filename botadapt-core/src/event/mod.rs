@@ -8,6 +8,8 @@ pub struct Event {
     pub platform: String,
     pub timestamp: i64,
     pub kind: EventKind,
+    #[serde(default)]
+    pub source_adapter: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -34,6 +36,7 @@ impl MessageEvent {
             user_id: self.user_id.clone(),
             group_id: self.group_id.clone(),
             channel_id: self.channel_id.clone(),
+            adapter_instance: None,
         }
     }
 }
@@ -82,4 +85,6 @@ pub struct MessageTarget {
     pub user_id: String,
     pub group_id: Option<String>,
     pub channel_id: Option<String>,
+    #[serde(default)]
+    pub adapter_instance: Option<String>,
 }

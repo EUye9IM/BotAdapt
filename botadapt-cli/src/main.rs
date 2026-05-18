@@ -58,9 +58,15 @@ async fn main() {
         if adapter_cfg.adapter_type == "qq" && adapter_cfg.enabled {
             if let Some(ref cfg) = adapter_cfg.config {
                 match QQConfig::from_toml_value(cfg) {
-                    Ok(qq_config) => {
+                    Ok(mut qq_config) => {
+                        if qq_config.name.is_none() {
+                            qq_config.name = adapter_cfg.name.clone();
+                        }
+                        let instance_id = qq_config.name.as_deref()
+                            .map(|n| format!("qq:{}", n))
+                            .unwrap_or_else(|| format!("qq:{}", &qq_config.app_id));
                         app.register_adapter(QQAdapter::new_arc(qq_config));
-                        tracing::info!("QQ 适配器已注册");
+                        tracing::info!(%instance_id, "QQ 适配器已注册");
                     }
                     Err(e) => {
                         tracing::error!("QQ 适配器配置解析失败: {}", e);

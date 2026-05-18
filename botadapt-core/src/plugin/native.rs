@@ -59,6 +59,7 @@ impl Plugin for BuiltinPlugin {
                     user_id: msg.user_id.clone(),
                     group_id: msg.group_id.clone(),
                     channel_id: msg.channel_id.clone(),
+                    adapter_instance: event.source_adapter.clone(),
                 };
                 (target, msg.content.text.clone())
             }

@@ -12,12 +12,15 @@ use crate::api::QqApi;
 use crate::config::QQConfig;
 
 pub struct QQAdapter {
+    instance_id: String,
     api: Arc<QqApi>,
 }
 
 impl QQAdapter {
     pub fn new(config: QQConfig) -> Self {
+        let instance_id = format!("qq:{}", config.name.as_deref().unwrap_or(&config.app_id));
         Self {
+            instance_id,
             api: QqApi::new_arc(&config),
         }
     }
@@ -33,17 +36,28 @@ impl Adapter for QQAdapter {
         "qq"
     }
 
+    fn instance_id(&self) -> String {
+        self.instance_id.clone()
+    }
+
     async fn start(&self, tx: mpsc::Sender<Event>, shutdown: CancellationToken) -> Result<()> {
-        tracing::info!("QQ 适配器启动");
+        tracing::info!(
+            instance_id = %self.instance_id,
+            "QQ 适配器启动"
+        );
 
         let api = self.api.clone();
         let ws_shutdown = shutdown.clone();
+        let instance_id = self.instance_id.clone();
         tokio::spawn(async move {
-            crate::ws::client::run_loop(api, tx, ws_shutdown).await;
+            crate::ws::client::run_loop(api, tx, ws_shutdown, instance_id).await;
         });
 
         shutdown.cancelled().await;
-        tracing::info!("QQ 适配器关闭");
+        tracing::info!(
+            instance_id = %self.instance_id,
+            "QQ 适配器关闭"
+        );
         Ok(())
     }
 
@@ -53,6 +67,7 @@ impl Adapter for QQAdapter {
         content: &MessageContent,
     ) -> Result<()> {
         tracing::debug!(
+            instance_id = %self.instance_id,
             user_id = %target.user_id,
             group_id = ?target.group_id,
             text = %content.text.chars().take(30).collect::<String>(),

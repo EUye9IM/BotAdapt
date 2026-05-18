@@ -15,15 +15,15 @@ impl AdapterRegistry {
     }
 
     pub fn register(&mut self, adapter: Arc<dyn Adapter>) {
-        let platform = adapter.platform_id().to_string();
-        self.adapters.insert(platform, adapter);
+        let id = adapter.instance_id();
+        self.adapters.insert(id, adapter);
     }
 
-    pub fn get(&self, platform: &str) -> Option<Arc<dyn Adapter>> {
-        self.adapters.get(platform).cloned()
+    pub fn get(&self, instance_id: &str) -> Option<Arc<dyn Adapter>> {
+        self.adapters.get(instance_id).cloned()
     }
 
-    pub fn platforms(&self) -> impl Iterator<Item = &str> {
+    pub fn ids(&self) -> impl Iterator<Item = &str> {
         self.adapters.keys().map(|s| s.as_str())
     }
 

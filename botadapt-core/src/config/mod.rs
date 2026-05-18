@@ -37,6 +37,8 @@ pub struct AdapterConfig {
     #[serde(default = "default_enabled")]
     pub enabled: bool,
     #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
     pub config: Option<toml::Value>,
     #[serde(default)]
     pub channels: Vec<ChannelEntry>,

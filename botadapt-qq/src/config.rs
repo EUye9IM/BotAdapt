@@ -6,6 +6,8 @@ use crate::error::QqError;
 pub struct QQConfig {
     pub app_id: String,
     pub client_secret: String,
+    #[serde(default)]
+    pub name: Option<String>,
 }
 
 impl QQConfig {

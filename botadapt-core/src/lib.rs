@@ -88,15 +88,15 @@ impl BotApp {
         let (event_tx, mut event_rx) = mpsc::channel::<Event>(1024);
 
         // 启动所有 Adapter
-        let platforms: Vec<String> = self.adapters.platforms().map(|s| s.to_string()).collect();
-        for platform in platforms {
-            if let Some(adapter) = self.adapters.get(&platform) {
+        let ids: Vec<String> = self.adapters.ids().map(|s| s.to_string()).collect();
+        for id in ids {
+            if let Some(adapter) = self.adapters.get(&id) {
                 let tx = event_tx.clone();
                 let shutdown = self.shutdown.clone();
                 let adapter = adapter.clone();
                 tokio::spawn(async move {
                     if let Err(e) = adapter.start(tx, shutdown).await {
-                        tracing::error!("适配器 {} 启动失败: {}", platform, e);
+                        tracing::error!("适配器 {} 启动失败: {}", id, e);
                     }
                 });
             }
@@ -151,21 +151,22 @@ impl BotApp {
     async fn execute_action(&self, action: Action) {
         match action {
             Action::SendMessage { target, content } => {
+                let lookup_key = target.adapter_instance.as_deref().unwrap_or(&target.platform);
                 let span = tracing::info_span!(
                     "send_message",
-                    platform = %target.platform,
+                    instance = %lookup_key,
                     user_id = %target.user_id,
                     text = %content.text.chars().take(20).collect::<String>(),
                 );
                 async {
-                    if let Some(adapter) = self.adapters.get(&target.platform) {
+                    if let Some(adapter) = self.adapters.get(lookup_key) {
                         if let Err(e) = adapter.send_message(&target, &content).await {
                             tracing::error!("发送消息失败: {}", e);
                         } else {
                             tracing::trace!("发送消息成功");
                         }
                     } else {
-                        tracing::warn!("未找到平台 {} 的适配器", target.platform);
+                        tracing::warn!("未找到适配器实例 {}", lookup_key);
                     }
                 }
                 .instrument(span)

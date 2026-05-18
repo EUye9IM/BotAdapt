@@ -3,7 +3,7 @@ use uuid::Uuid;
 
 use crate::api::types::C2cMessageData;
 
-pub fn c2c_message_create(d: &serde_json::Value) -> Option<Event> {
+pub fn c2c_message_create(d: &serde_json::Value, source_adapter: &str) -> Option<Event> {
     tracing::trace!(payload = %d, "开始转换 C2C 消息");
 
     let data: C2cMessageData = serde_json::from_value(d.clone()).ok()?;
@@ -14,6 +14,7 @@ pub fn c2c_message_create(d: &serde_json::Value) -> Option<Event> {
         channel_id: format!("qq:c2c:{}", user_openid),
         platform: "qq".into(),
         timestamp: chrono_now_millis(),
+        source_adapter: Some(source_adapter.to_string()),
         kind: EventKind::Message(MessageEvent {
             user_id: user_openid.clone(),
             group_id: None,
@@ -60,7 +61,7 @@ mod tests {
     #[test]
     fn c2c_normal_message() {
         let d = make_c2c_json("USER_OPENID_ABC", "你好", "MSG_ID_001");
-        let event = c2c_message_create(&d).expect("应成功转换");
+        let event = c2c_message_create(&d, "qq:test").expect("应成功转换");
 
         assert_eq!(event.platform, "qq");
         assert_eq!(event.channel_id, "qq:c2c:USER_OPENID_ABC");
@@ -84,7 +85,7 @@ mod tests {
     #[test]
     fn c2c_empty_content() {
         let d = make_c2c_json("U1", "", "MSG_002");
-        let event = c2c_message_create(&d).expect("空内容也应转换");
+        let event = c2c_message_create(&d, "qq:test").expect("空内容也应转换");
         match event.kind {
             EventKind::Message(msg) => assert_eq!(msg.content.text, ""),
             _ => panic!("应为 Message 事件"),
@@ -94,7 +95,7 @@ mod tests {
     #[test]
     fn c2c_invalid_json_returns_none() {
         let d = serde_json::json!({ "not": "valid" });
-        assert!(c2c_message_create(&d).is_none());
+        assert!(c2c_message_create(&d, "qq:test").is_none());
     }
 
     #[test]
@@ -104,6 +105,6 @@ mod tests {
             "content": "test",
             "timestamp": "2023-11-06T13:37:18+08:00"
         });
-        assert!(c2c_message_create(&d).is_none());
+        assert!(c2c_message_create(&d, "qq:test").is_none());
     }
 }

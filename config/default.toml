@@ -5,6 +5,7 @@ log_level = "${RUST_LOG:-info}"
 [[adapters]]
 type = "qq"
 enabled = true
+name = "default"
 [adapters.config]
 app_id = "${QQ_APP_ID}"
 client_secret = "${QQ_CLIENT_SECRET}"
