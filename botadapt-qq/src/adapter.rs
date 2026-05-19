@@ -11,51 +11,52 @@ use botadapt_core::event::{Event, MessageContent, MessageTarget};
 use crate::api::QqApi;
 use crate::config::QQConfig;
 
+use crate::PLATFORM_ID;
+
 pub struct QQAdapter {
-    instance_id: String,
+    name: String,
     api: Arc<QqApi>,
 }
 
 impl QQAdapter {
-    pub fn new(config: QQConfig) -> Self {
-        let instance_id = format!("qq:{}", config.name.as_deref().unwrap_or(&config.app_id));
+    pub fn new(config: QQConfig, name: String) -> Self {
         Self {
-            instance_id,
+            name,
             api: QqApi::new_arc(&config),
         }
     }
 
-    pub fn new_arc(config: QQConfig) -> Arc<dyn Adapter> {
-        Arc::new(Self::new(config))
+    pub fn new_arc(config: QQConfig, name: String) -> Arc<dyn Adapter> {
+        Arc::new(Self::new(config, name))
     }
 }
 
 #[async_trait]
 impl Adapter for QQAdapter {
     fn platform_id(&self) -> &'static str {
-        "qq"
+        PLATFORM_ID
     }
 
-    fn instance_id(&self) -> String {
-        self.instance_id.clone()
+    fn name(&self) -> String {
+        self.name.clone()
     }
 
     async fn start(&self, tx: mpsc::Sender<Event>, shutdown: CancellationToken) -> Result<()> {
         tracing::info!(
-            instance_id = %self.instance_id,
+            name = %self.name,
             "QQ 适配器启动"
         );
 
         let api = self.api.clone();
         let ws_shutdown = shutdown.clone();
-        let instance_id = self.instance_id.clone();
+        let name = self.name.clone();
         tokio::spawn(async move {
-            crate::ws::client::run_loop(api, tx, ws_shutdown, instance_id).await;
+            crate::ws::client::run_loop(api, tx, ws_shutdown, name).await;
         });
 
         shutdown.cancelled().await;
         tracing::info!(
-            instance_id = %self.instance_id,
+            name = %self.name,
             "QQ 适配器关闭"
         );
         Ok(())
@@ -67,7 +68,7 @@ impl Adapter for QQAdapter {
         content: &MessageContent,
     ) -> Result<()> {
         tracing::debug!(
-            instance_id = %self.instance_id,
+            name = %self.name,
             user_id = %target.user_id,
             group_id = ?target.group_id,
             text = %content.text.chars().take(30).collect::<String>(),

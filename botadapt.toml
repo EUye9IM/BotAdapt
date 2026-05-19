@@ -10,17 +10,17 @@ name = "default"
 app_id = "${QQ_APP_ID}"
 client_secret = "${QQ_CLIENT_SECRET}"
 
-# 声明 channel 与插件绑定
+# 声明 channel 与插件绑定（channel_id 不需要平台前缀，已由所属 adapter 确定平台）
 [[adapters.channels]]
-channel_id = "qq:c2c:*"
+channel_id = "c2c:*"
 plugins = ["builtin"]
 
 [[adapters.channels]]
-channel_id = "qq:group:*"
+channel_id = "group:*"
 plugins = ["builtin"]
 
 [[adapters.channels]]
-channel_id = "qq:group:123456"
+channel_id = "group:123456"
 plugins = ["echo"]
 
 # --- 插件 ---

@@ -10,6 +10,7 @@ use botadapt_core::plugin::Action;
 use botadapt_core::BotApp;
 use botadapt_qq::adapter::QQAdapter;
 use botadapt_qq::config::QQConfig;
+use botadapt_qq::PLATFORM_ID;
 
 fn builtin_commands() -> Vec<BuiltinCommand> {
     vec![
@@ -34,7 +35,7 @@ fn builtin_commands() -> Vec<BuiltinCommand> {
 async fn main() {
     let config_path = env::args()
         .nth(1)
-        .unwrap_or_else(|| "config/default.toml".into());
+        .unwrap_or_else(|| "botadapt.toml".into());
 
     let config = match botadapt_core::config::Config::from_file(&config_path) {
         Ok(c) => c,
@@ -55,18 +56,13 @@ async fn main() {
     let mut app = BotApp::from_config(config.clone());
 
     for adapter_cfg in &config.adapters {
-        if adapter_cfg.adapter_type == "qq" && adapter_cfg.enabled {
+        if adapter_cfg.adapter_type == PLATFORM_ID && adapter_cfg.enabled {
             if let Some(ref cfg) = adapter_cfg.config {
                 match QQConfig::from_toml_value(cfg) {
-                    Ok(mut qq_config) => {
-                        if qq_config.name.is_none() {
-                            qq_config.name = adapter_cfg.name.clone();
-                        }
-                        let instance_id = qq_config.name.as_deref()
-                            .map(|n| format!("qq:{}", n))
-                            .unwrap_or_else(|| format!("qq:{}", &qq_config.app_id));
-                        app.register_adapter(QQAdapter::new_arc(qq_config));
-                        tracing::info!(%instance_id, "QQ 适配器已注册");
+                    Ok(qq_config) => {
+                        let name = &adapter_cfg.name;
+                        app.register_adapter(QQAdapter::new_arc(qq_config, name.clone()), &adapter_cfg.channels);
+                        tracing::info!(%name, "QQ 适配器已注册");
                     }
                     Err(e) => {
                         tracing::error!("QQ 适配器配置解析失败: {}", e);

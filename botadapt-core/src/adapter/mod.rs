@@ -11,7 +11,7 @@ use crate::event::{Event, MessageContent, MessageTarget};
 pub trait Adapter: Send + Sync {
     fn platform_id(&self) -> &'static str;
 
-    fn instance_id(&self) -> String {
+    fn name(&self) -> String {
         self.platform_id().to_string()
     }
 

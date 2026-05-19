@@ -15,12 +15,12 @@ impl AdapterRegistry {
     }
 
     pub fn register(&mut self, adapter: Arc<dyn Adapter>) {
-        let id = adapter.instance_id();
-        self.adapters.insert(id, adapter);
+        let name = adapter.name();
+        self.adapters.insert(name, adapter);
     }
 
-    pub fn get(&self, instance_id: &str) -> Option<Arc<dyn Adapter>> {
-        self.adapters.get(instance_id).cloned()
+    pub fn get(&self, name: &str) -> Option<Arc<dyn Adapter>> {
+        self.adapters.get(name).cloned()
     }
 
     pub fn ids(&self) -> impl Iterator<Item = &str> {
@@ -29,5 +29,12 @@ impl AdapterRegistry {
 
     pub fn is_empty(&self) -> bool {
         self.adapters.is_empty()
+    }
+
+    pub fn find_by_platform(&self, platform: &str) -> Option<Arc<dyn Adapter>> {
+        self.adapters
+            .values()
+            .find(|a| a.platform_id() == platform)
+            .cloned()
     }
 }

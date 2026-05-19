@@ -10,6 +10,7 @@ use std::sync::Arc;
 use adapter::registry::AdapterRegistry;
 use adapter::Adapter;
 use binding::ChannelBinding;
+use config::ChannelEntry;
 use error::Result;
 use event::Event;
 use plugin::manager::PluginManager;
@@ -29,22 +30,11 @@ pub struct BotApp {
 impl BotApp {
     /// 从配置文件构建（生产用）
     pub fn from_config(cfg: config::Config) -> Self {
-        let mut bindings = ChannelBinding::new();
-        let plugin_manager = PluginManager::new();
-        let adapters = AdapterRegistry::new();
-
-        // 构建 channel → plugin 绑定表
-        for adapter_cfg in &cfg.adapters {
-            for ch in &adapter_cfg.channels {
-                bindings.add(ch.channel_id.clone(), ch.plugins.clone());
-            }
-        }
-
         Self {
             config: cfg,
-            adapters,
-            plugin_manager,
-            bindings,
+            adapters: AdapterRegistry::new(),
+            plugin_manager: PluginManager::new(),
+            bindings: ChannelBinding::new(),
             shutdown: tokio_util::sync::CancellationToken::new(),
         }
     }
@@ -64,8 +54,13 @@ impl BotApp {
         }
     }
 
-    /// 注册 Adapter（测试注入 Mock 用）
-    pub fn register_adapter(&mut self, adapter: Arc<dyn Adapter>) {
+    /// 注册 Adapter 并绑定其 channels
+    pub fn register_adapter(&mut self, adapter: Arc<dyn Adapter>, channels: &[ChannelEntry]) {
+        let name = adapter.name();
+        for ch in channels {
+            self.bindings
+                .add(&name, ch.channel_id.clone(), ch.plugins.clone());
+        }
         self.adapters.register(adapter);
     }
 
@@ -75,8 +70,9 @@ impl BotApp {
     }
 
     /// 注册 Channel 绑定（测试注入用）
-    pub fn bind_channel(&mut self, channel_id: &str, plugins: Vec<String>) {
-        self.bindings.add(channel_id.to_string(), plugins);
+    pub fn bind_channel(&mut self, name: &str, channel_id: &str, plugins: Vec<String>) {
+        self.bindings
+            .add(name, channel_id.to_string(), plugins);
     }
 
     /// 启动事件循环
@@ -115,10 +111,12 @@ impl BotApp {
                     async {
                         tracing::debug!("收到事件");
 
-                        let plugin_names = self.bindings.resolve(&event.channel_id);
+                        let lookup = event.source_adapter.as_deref().unwrap_or(&event.platform);
+                        let plugin_names = self.bindings.resolve(lookup, &event.channel_id);
                         tracing::debug!(
-                            "channel 绑定解析: {} → {} 个插件",
+                            "channel 绑定解析: {}@{} → {} 个插件",
                             event.channel_id,
+                            lookup,
                             plugin_names.len()
                         );
 
@@ -159,7 +157,10 @@ impl BotApp {
                     text = %content.text.chars().take(20).collect::<String>(),
                 );
                 async {
-                    if let Some(adapter) = self.adapters.get(lookup_key) {
+                    let adapter = self.adapters
+                        .get(lookup_key)
+                        .or_else(|| self.adapters.find_by_platform(lookup_key));
+                    if let Some(adapter) = adapter {
                         if let Err(e) = adapter.send_message(&target, &content).await {
                             tracing::error!("发送消息失败: {}", e);
                         } else {

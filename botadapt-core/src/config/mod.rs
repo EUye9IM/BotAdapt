@@ -36,8 +36,7 @@ pub struct AdapterConfig {
     pub adapter_type: String,
     #[serde(default = "default_enabled")]
     pub enabled: bool,
-    #[serde(default)]
-    pub name: Option<String>,
+    pub name: String,
     #[serde(default)]
     pub config: Option<toml::Value>,
     #[serde(default)]

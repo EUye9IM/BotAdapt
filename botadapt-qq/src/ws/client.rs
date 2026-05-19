@@ -18,13 +18,13 @@ pub async fn run_loop(
     api: Arc<QqApi>,
     event_tx: mpsc::Sender<botadapt_core::event::Event>,
     shutdown: CancellationToken,
-    instance_id: String,
+    name: String,
 ) {
     let mut retry_count = 0u32;
     loop {
         tokio::select! {
             _ = shutdown.cancelled() => break,
-            result = connect_and_dispatch(&api, &event_tx, &shutdown, &instance_id) => {
+            result = connect_and_dispatch(&api, &event_tx, &shutdown, &name) => {
                 match result {
                     Ok(()) => break,
                     Err(e) => {
@@ -51,7 +51,7 @@ async fn connect_and_dispatch(
     api: &QqApi,
     event_tx: &mpsc::Sender<botadapt_core::event::Event>,
     shutdown: &CancellationToken,
-    instance_id: &str,
+    name: &str,
 ) -> Result<(), QqError> {
     let span = tracing::info_span!("ws_connect");
     let _guard = span.enter();
@@ -142,7 +142,7 @@ async fn connect_and_dispatch(
                                 let t = payload.t.as_deref().unwrap_or("");
                                 if t == "C2C_MESSAGE_CREATE" {
                                     if let Some(event) =
-                                        crate::event::converter::c2c_message_create(&payload.d, instance_id)
+                                        crate::event::converter::c2c_message_create(&payload.d, name)
                                     {
                                         if event_tx.send(event).await.is_err() {
                                             return Ok(());
