@@ -1,16 +1,23 @@
 use std::collections::HashMap;
+use std::path::Path;
+use std::sync::Arc;
 
+use super::wasm::{PluginInstance, WasmPlugin};
 use super::{Action, Plugin};
+use crate::error::Result;
 use crate::event::Event;
 use tracing::Instrument;
+use wasmtime::Engine;
 
 pub struct PluginManager {
+    engine: Engine,
     plugins: HashMap<String, Box<dyn Plugin>>,
 }
 
 impl PluginManager {
     pub fn new() -> Self {
         Self {
+            engine: Engine::default(),
             plugins: HashMap::new(),
         }
     }
@@ -26,6 +33,19 @@ impl PluginManager {
 
     pub fn get(&self, name: &str) -> Option<&dyn Plugin> {
         self.plugins.get(name).map(|p| p.as_ref())
+    }
+
+    pub fn load_wasm(
+        &mut self,
+        name: &str,
+        path: &Path,
+        config: serde_json::Value,
+    ) -> Result<()> {
+        let wasm_bytes = std::fs::read(path)?;
+        let instance = Arc::new(PluginInstance::load(&self.engine, &wasm_bytes, config)?);
+        let plugin = Box::new(WasmPlugin::new(name.to_string(), instance));
+        self.register(plugin);
+        Ok(())
     }
 
     pub async fn dispatch_parallel(&self, event: &Event, names: &[String]) -> Vec<Action> {

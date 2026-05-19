@@ -5,6 +5,7 @@ members = [
     "botadapt-qq",
     "botadapt-cli",
     "botadapt-plugin-sdk",
+    "plugins/dice",
 ]
 default-members = [
     "botadapt-core",

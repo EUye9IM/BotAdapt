@@ -1,4 +1,5 @@
 use std::env;
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -79,6 +80,18 @@ async fn main() {
     });
     let builtin = BuiltinPlugin::new("builtin", builtin_commands(), ctx);
     app.register_plugin(Box::new(builtin));
+
+    for plugin_cfg in &config.plugins {
+        if plugin_cfg.enabled {
+            let path = Path::new(&plugin_cfg.path);
+            let plugin_config = serde_json::json!({});
+            if let Err(e) = app.load_wasm_plugin(&plugin_cfg.name, path, plugin_config) {
+                tracing::error!("加载 WASM 插件 {} 失败: {}", plugin_cfg.name, e);
+            } else {
+                tracing::info!("WASM 插件 {} 已加载", plugin_cfg.name);
+            }
+        }
+    }
 
     if let Err(e) = app.run().await {
         tracing::error!("运行失败: {}", e);

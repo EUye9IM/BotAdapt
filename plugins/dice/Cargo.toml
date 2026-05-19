@@ -1,11 +1,13 @@
 [package]
-name = "botadapt-plugin-sdk"
+name = "dice"
 version = "0.1.0"
 edition = "2021"
 
+
 [lib]
-crate-type = ["lib", "cdylib"]
+crate-type = ["cdylib"]
 
 [dependencies]
+botadapt-plugin-sdk = { path = "../../botadapt-plugin-sdk" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

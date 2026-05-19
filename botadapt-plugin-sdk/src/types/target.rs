@@ -6,4 +6,6 @@ pub struct MessageTarget {
     pub user_id: String,
     pub group_id: Option<String>,
     pub channel_id: Option<String>,
+    #[serde(default)]
+    pub adapter_instance: Option<String>,
 }

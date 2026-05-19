@@ -69,6 +69,16 @@ impl BotApp {
         self.plugin_manager.register(plugin);
     }
 
+    /// 加载 WASM 插件
+    pub fn load_wasm_plugin(
+        &mut self,
+        name: &str,
+        path: &std::path::Path,
+        config: serde_json::Value,
+    ) -> Result<()> {
+        self.plugin_manager.load_wasm(name, path, config)
+    }
+
     /// 注册 Channel 绑定（测试注入用）
     pub fn bind_channel(&mut self, name: &str, channel_id: &str, plugins: Vec<String>) {
         self.bindings

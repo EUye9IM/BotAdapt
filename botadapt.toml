@@ -13,23 +13,28 @@ client_secret = "${QQ_CLIENT_SECRET}"
 # 声明 channel 与插件绑定（channel_id 不需要平台前缀，已由所属 adapter 确定平台）
 [[adapters.channels]]
 channel_id = "c2c:*"
-plugins = ["builtin"]
+plugins = ["builtin", "dice"]
 
 [[adapters.channels]]
 channel_id = "group:*"
-plugins = ["builtin"]
+plugins = ["builtin", "dice"]
 
 [[adapters.channels]]
 channel_id = "group:123456"
-plugins = ["echo"]
+plugins = ["echo", "dice"]
 
 # --- 插件 ---
 [[plugins]]
+name = "dice"
+path = "./plugins/dice.wasm"
+enabled = true
+
+[[plugins]]
 name = "echo"
 path = "./plugins/echo.wasm"
-enabled = true
+enabled = false
 
 [[plugins]]
 name = "admin"
 path = "./plugins/admin.wasm"
-enabled = true
+enabled = false

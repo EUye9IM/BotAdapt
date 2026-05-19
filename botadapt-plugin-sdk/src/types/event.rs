@@ -7,6 +7,8 @@ pub struct Event {
     pub platform: String,
     pub timestamp: i64,
     pub kind: EventKind,
+    #[serde(default)]
+    pub source_adapter: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
