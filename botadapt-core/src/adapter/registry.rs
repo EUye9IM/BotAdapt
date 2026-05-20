@@ -1,3 +1,4 @@
+use std::collections::hash_map::Iter;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -14,27 +15,25 @@ impl AdapterRegistry {
         }
     }
 
-    pub fn register(&mut self, adapter: Arc<dyn Adapter>) {
-        let name = adapter.name();
-        self.adapters.insert(name, adapter);
+    pub fn register(&mut self, name: &str, adapter: Arc<dyn Adapter>) {
+        self.adapters.insert(name.to_owned(), adapter);
     }
 
+    pub fn iter(&self) -> Iter<String, Arc<dyn Adapter>> {
+        self.adapters.iter()
+    }
     pub fn get(&self, name: &str) -> Option<Arc<dyn Adapter>> {
         self.adapters.get(name).cloned()
     }
 
-    pub fn ids(&self) -> impl Iterator<Item = &str> {
-        self.adapters.keys().map(|s| s.as_str())
-    }
+    // pub fn ids(&self) -> impl Iterator<Item = &str> {
+    //     self.adapters.keys().map(|s| s.as_str())
+    // }
 
-    pub fn is_empty(&self) -> bool {
-        self.adapters.is_empty()
-    }
-
-    pub fn find_by_platform(&self, platform: &str) -> Option<Arc<dyn Adapter>> {
-        self.adapters
-            .values()
-            .find(|a| a.platform_id() == platform)
-            .cloned()
-    }
+    // pub fn find_by_platform(&self, platform: &str) -> Option<Arc<dyn Adapter>> {
+    //     self.adapters
+    //         .values()
+    //         .find(|a| a.platform_id() == platform)
+    //         .cloned()
+    // }
 }

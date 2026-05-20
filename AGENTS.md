@@ -6,7 +6,7 @@ BotAdapt is a Rust + Tokio async bot framework. Design doc: `DESIGN.md`.
 
 **Distribution model**: events are **broadcast** to all plugins bound to a channel. Plugins execute **in parallel**, no ordering or dependency between them. No Router, no Break/Continue control flow.
 
-**Channel Binding**: config maps `channel_id` → `[plugin_names]`, not event-type routes. `channel_id` format: `"{platform}:{type}:{id}"` (e.g. `"qq:group:123456"`). Supports wildcard `*`.
+**Channel Binding**: config maps `channel_id` → `[plugin_names]`, not event-type routes. `channel_id` format: `"{type}:{id}"` (e.g. `"group:123456"`). Platform is determined by the owning adapter instance. Channel bindings are per-adapter, keyed by the adapter's `name`. Supports wildcard `*`.
 
 **Action**: pure side-effect (SendMessage, Noop). No control-flow semantics. Core collects all Actions from parallel dispatch and executes each.
 
@@ -21,9 +21,9 @@ BotAdapt is a Rust + Tokio async bot framework. Design doc: `DESIGN.md`.
 
 ## Key types
 
-- `Event` has `channel_id: String` (used to look up plugins) and `platform: String`
-- `MessageTarget { platform, user_id, group_id?, channel_id? }` — host uses `platform` to find Adapter
-- `Adapter` trait: `platform_id()`, `start(tx, shutdown)`, `send_message(target, content)`
+- `Event` has `channel_id: String`, `platform: String`, `source_adapter: Option<String>` (identifying which adapter instance produced it)
+- `MessageTarget { platform, user_id, group_id?, channel_id?, adapter_instance? }` — host looks up AdapterRegistry by `adapter_instance` (fallback `platform`)
+- `Adapter` trait: `start(self_name, tx, shutdown)`, `send_message(target, content)`. Name is managed externally by `AdapterRegistry`
 - Wasm `Store` is per-`PluginInstance` wrapped in `Mutex` (not Send+Sync); `Engine` is shared
 
 ## Config
@@ -35,12 +35,14 @@ so values with special characters (quotes, newlines) are safe.
 ```toml
 [[adapters]]
 type = "qq"
+enabled = true
+name = "default"
 [adapters.config]
 app_id = "${QQ_APP_ID}"
 client_secret = "${QQ_CLIENT_SECRET}"
 
 [[adapters.channels]]
-channel_id = "qq:group:123456"
+channel_id = "group:123456"
 plugins = ["echo", "admin"]
 ```
 
@@ -104,7 +106,7 @@ Config uses `${RUST_LOG:-info}` expansion for runtime override via env var.
 Requires `tracing-subscriber` with `env-filter` feature (not in default features for 0.3.x).
 
 ```toml
-# config/default.toml
+# botadapt.toml
 [core]
 log_level = "${RUST_LOG:-info}"
 ```

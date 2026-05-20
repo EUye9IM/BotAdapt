@@ -80,8 +80,7 @@ botadapt/
 ├── botadapt-qq/                    # [Adapter] QQ 官方 API
 ├── botadapt-plugin-sdk/            # [SDK] 插件开发库 (no_std 兼容)
 ├── botadapt-cli/                   # [入口] CLI 二进制
-├── examples/                       # 示例插件
-└── config/                         # 默认配置示例
+├── plugins/                        # 插件项目 + .wasm 产物
 ```
 
 ### 3.1 `botadapt-core`
@@ -100,18 +99,16 @@ src/
 │   └── bus.rs              # 广播 + 订阅
 ├── adapter/
 │   ├── mod.rs              # Adapter trait
-│   ├── manager.rs          # Adapter 注册与生命周期
-│   └── registry.rs         # Adapter 查找 (按 platform)
+│   └── registry.rs         # Adapter 注册与查找 (按 name)
 ├── plugin/
-│   ├── mod.rs              # Plugin trait (框架内部)
+│   ├── mod.rs              # Plugin trait + Action
 │   ├── wasm/
-│   │   ├── runtime.rs      # Wasmtime Engine / Store 管理
-│   │   ├── instance.rs     # PluginInstance: 加载 & 调用
-│   │   ├── abi.rs          # 导入/导出函数签名常量
-│   │   └── host_fns.rs     # host 函数实现 (log, send_message, etc.)
-│   ├── native/             # (可选) 原生 Rust plugin 支持
-│   └── manager.rs          # 插件加载/卸载/热更
-├── binding.rs              # Channel → PluginList 绑定表
+│   │   ├── mod.rs          # 模块入口
+│   │   ├── instance.rs     # PluginInstance: 加载 & 调用 + WasmPlugin 包装
+│   │   └── host_fns.rs     # host 函数实现 (log, get_config)
+│   ├── native.rs           # BuiltinPlugin 实现
+│   └── manager.rs          # 插件加载/卸载 + 并行分发
+├── binding.rs              # Channel → PluginList 绑定表 (按 adapter 分组)
 └── error.rs                # 统一错误类型
 ```
 
@@ -120,19 +117,15 @@ src/
 ```rust
 #[async_trait]
 pub trait Adapter: Send + Sync {
-    fn platform_id(&self) -> &'static str;
-    async fn start(&self, tx: mpsc::Sender<Event>, shutdown: CancellationToken);
+    /// self_name 为适配器在注册表中的名称（如 "default"），
+    /// 用于事件溯源（写入 Event.source_adapter）及日志标识。
+    async fn start(&self, self_name: String, tx: mpsc::Sender<Event>, shutdown: CancellationToken) -> Result<()>;
     async fn send_message(&self, target: &MessageTarget, content: &MessageContent) -> Result<()>;
 }
 
-/// 适配器管理器负责根据 platform 查找对应的 Adapter
-/// 当插件调用 host_send_message 时，host 通过 MessageTarget.platform
-/// 在 AdapterManager 中找到对应 adapter，调用其 send_message
-pub trait AdapterManager: Send + Sync {
-    fn get(&self, platform: &str) -> Option<Box<dyn Adapter>>;
-    fn register(&mut self, adapter: Box<dyn Adapter>) -> Result<()>;
-    fn unregister(&mut self, platform: &str) -> Result<()>;
-}
+/// 适配器注册表按 name 查找 Adapter 实例
+/// 当插件调用 send_message 时，host 通过 MessageTarget.adapter_instance
+/// 在 AdapterRegistry 中找到对应 adapter，调用其 send_message。
 ```
 
 ### 3.2 `botadapt-qq`
@@ -162,37 +155,32 @@ src/
 给插件开发者使用的库。编译目标为 `wasm32-wasip1`。
 
 ```rust
-// 用户插件代码示例
+// 用户插件代码示例（dice 插件实际实现）
 use botadapt_plugin_sdk::prelude::*;
 
-plugin!(EchoPlugin);
+// 导出 ABI 符号
+#[no_mangle] pub extern "C" fn plugin_version() -> i32 { 1 }
 
-struct EchoPlugin;
-
-impl Plugin for EchoPlugin {
-    fn on_event(&self, ctx: &Context, event: &Event) -> Result<Vec<Action>> {
-        if let Event::Message(msg) = event {
-            ctx.send_message(&msg.reply_target(), &msg.content)?;
-        }
-        // Action 仅表示副作用（如发消息），不再有 Break/Continue 控制流
-        // 返回 vec![] 即插件不产生任何操作
-        Ok(vec![])
-    }
+#[no_mangle]
+pub extern "C" fn plugin_handle_event(event_ptr: i32, event_len: i32) -> i64 {
+    // 1. 从 wasm memory 读取 Event JSON
+    // 2. 解析消息文本，匹配命令（如 ndm）
+    // 3. 构造 Action JSON，写回 wasm memory
+    // 4. 返回 packed (ptr << 32 | len)
+    todo!()
 }
 ```
 
 ```
 src/
 ├── lib.rs
-├── macros/
-│   ├── plugin.rs           # #[plugin] proc-macro
-│   └── register.rs         # 生成导出符号
 ├── types/
 │   ├── event.rs            # Event (serde 序列化)
-│   ├── action.rs           # Action: SendMessage / HttpRequest / Noop
+│   ├── action.rs           # Action: SendMessage / Noop
 │   └── target.rs           # MessageTarget
 ├── host_calls.rs           # extern "C" host 函数声明
-└── prelude.rs
+├── prelude.rs              # 统一重导出
+└── lib.rs
 ```
 
 **Action 类型**（纯副作用，无控制流语义）：
@@ -230,9 +218,10 @@ async fn main() {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Event {
     pub id: Uuid,
-    pub channel_id: String,     // 全局唯一 channel 标识，格式: "{platform}:{type}:{id}"
-                                // 示例: "qq:group:123456", "discord:channel:789"
-    pub platform: String,       // "qq" (冗余于 channel_id 前缀，便于快速检索)
+    pub channel_id: String,         // channel 标识，格式: "{type}:{id}"
+                                    // 示例: "group:123456", "c2c:USER_OPENID"
+    pub platform: String,           // "qq" (平台标识，便于插件做差异逻辑)
+    pub source_adapter: Option<String>, // 产生事件的适配器 name
     pub timestamp: i64,
     pub kind: EventKind,
 }
@@ -273,20 +262,16 @@ pub struct MessageContent {
 ```rust
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MessageTarget {
-    pub platform: String,           // "qq"
+    pub platform: String,               // "qq"
     pub user_id: String,
-    pub group_id: Option<String>,   // 群聊时非空
-    pub channel_id: Option<String>, // 频道消息时非空
-}
-
-impl MessageEvent {
-    /// 构造对当前消息的回复目标
-    pub fn reply_target(&self) -> MessageTarget { ... }
+    pub group_id: Option<String>,       // 群聊时非空
+    pub channel_id: Option<String>,    // 频道消息时非空
+    pub adapter_instance: Option<String>, // 目标适配器 name（回退到 platform）
 }
 ```
 
-当 host 收到插件的 `host_send_message` 调用时：
-1. 解析 `MessageTarget.platform`，在 `AdapterManager` 中找到对应 Adapter
+当 host 收到插件的 send_message Action 时：
+1. 使用 `MessageTarget.adapter_instance`（fallback `platform`）在 `AdapterRegistry` 中查找对应 Adapter
 2. 调用 `adapter.send_message(target, content)` 发出
 
 核心查找逻辑：
@@ -294,12 +279,13 @@ impl MessageEvent {
 ```rust
 // adapter/registry.rs
 pub struct AdapterRegistry {
-    adapters: HashMap<String, Box<dyn Adapter>>,
+    adapters: HashMap<String, Arc<dyn Adapter>>,
 }
 
 impl AdapterRegistry {
-    pub fn get(&self, platform: &str) -> Option<&dyn Adapter> { ... }
-    pub fn register(&mut self, adapter: Box<dyn Adapter>) { ... }
+    pub fn register(&mut self, name: &str, adapter: Arc<dyn Adapter>) { ... }
+    pub fn get(&self, name: &str) -> Option<Arc<dyn Adapter>> { ... }
+    pub fn iter(&self) -> Iter<String, Arc<dyn Adapter>> { ... }
 }
 ```
 
@@ -330,7 +316,7 @@ impl AdapterRegistry {
 |------|------|------|
 | `plugin_version` | `() -> i32` | 返回 ABI 版本号 |
 | `plugin_init` | `(ptr: i32, len: i32) -> i32` | 初始化，接收 JSON 配置 |
-| `plugin_handle_event` | `(ptr: i32, len: i32) -> i32` | 处理事件，返回 JSON Action |
+| `plugin_handle_event` | `(ptr: i32, len: i32) -> i64` | 处理事件，返回 packed (result_ptr << 32 \| result_len) |
 | `plugin_destroy` | `() -> ()` | 卸载前清理 |
 
 Host 函数（插件可以调用）：
@@ -338,8 +324,8 @@ Host 函数（插件可以调用）：
 | 符号 | 签名 | 说明 |
 |------|------|------|
 | `host_log` | `(level: i32, ptr: i32, len: i32)` | 日志输出 |
-| `host_send_message` | `(target_ptr, target_len, content_ptr, content_len) -> i32` | 发送消息 |
 | `host_get_config` | `(ptr: i32, len: i32) -> i32` | 读取插件配置 |
+| `host_send_message` | 暂未实现 | 后续迭代 |
 
 序列化采用 JSON（简单通用，在 wasm 边界上性能可接受）。
 
@@ -379,7 +365,8 @@ Wasmtime 的 `Store` 不是 `Send + Sync`，而 `dispatch_parallel` 需要对同
 pub struct PluginInstance {
     name: String,
     store: Mutex<Store<PluginData>>,
-    handle_event_fn: TypedFunc<(i32, i32), i32>,
+    handle_event_fn: TypedFunc<(i32, i32), i64>,
+    memory: Memory,
 }
 ```
 
@@ -404,46 +391,41 @@ log_level = "info"
 [[adapters]]
 type = "qq"
 enabled = true
+name = "default"
 [adapters.config]
 app_id = "123456"
-token = "your_token_here"
-intents = ["GROUP_MESSAGE", "FRIEND_MESSAGE"]
-ws_url = "wss://qq.sandbox.com/"
+client_secret = "your_secret_here"
 
 # 声明该 adapter 下有哪些 channel，每个 channel 绑定哪些插件
 [[adapters.channels]]
-channel_id = "qq:group:123456"
-plugins = ["echo", "admin"]
+channel_id = "group:123456"
+plugins = ["builtin", "dice"]
 
 [[adapters.channels]]
-channel_id = "qq:friend:*"
-plugins = ["echo"]
+channel_id = "c2c:*"
+plugins = ["builtin"]
 
 [[plugins]]
-name = "echo"
-path = "./plugins/echo.wasm"
-enabled = true
-
-[[plugins]]
-name = "admin"
-path = "./plugins/admin.wasm"
+name = "dice"
+path = "./plugins/dice.wasm"
 enabled = true
 ```
 
 #### Channel ID 格式
 
-`channel_id` 采用 `{platform}:{type}:{id}` 格式：
+`channel_id` 采用 `{type}:{id}` 格式，platform 由所属 adapter 确定：
 
 | 示例 | 含义 |
 |------|------|
-| `qq:group:123456` | QQ 群聊 123456 |
-| `qq:friend:789` | QQ 好友 789 |
-| `qq:group:*` | 通配 QQ 所有群聊 |
-| `discord:channel:987` | Discord 频道 987 |
+| `group:123456` | QQ 群聊 123456 |
+| `c2c:USER_OPENID` | QQ 私聊 |
+| `group:*` | 通配所有群聊 |
+| `*` | 全通配所有 channel |
 
 channel_id 匹配规则：
 - 精确匹配优先于通配匹配
-- 同一个 channel 如果没有精确匹配，尝试通配 `*`
+- 同一个 channel 如果没有精确匹配，尝试 `"{type}:*"` 和 `"*"`
+- 绑定表按 adapter name 分组，事件通过 `source_adapter` 定位到对应 adapter 的绑定
 - 一个 channel 可以绑定多个插件，全部并行执行
 
 ### 6.2 配置热重载
@@ -486,15 +468,16 @@ Event Loop 核心：
 pub async fn run(self) -> Result<()> {
     let (event_tx, mut event_rx) = mpsc::channel(1024);
 
-    for adapter in &self.adapters {
-        adapter.start(event_tx.clone(), self.shutdown.clone()).await?;
+    for (name, adapter) in self.adapters.iter() {
+        adapter.start(name.clone(), event_tx.clone(), self.shutdown.clone()).await?;
     }
 
     loop {
         tokio::select! {
             Some(event) = event_rx.recv() => {
-                // 1. 查 Channel Binding 表，找到该 channel 绑定的插件
-                let plugin_names = self.bindings.resolve(&event.channel_id);
+                // 1. 根据 source_adapter 定位 adapter，查找 channel 绑定的插件
+                let lookup = event.source_adapter.as_deref().unwrap_or(&event.platform);
+                let plugin_names = self.bindings.resolve(lookup, &event.channel_id);
 
                 // 2. 并行调用所有匹配的插件
                 let actions = self.plugin_manager
@@ -519,25 +502,25 @@ pub async fn run(self) -> Result<()> {
 
 ### Phase 1 — 骨架搭建
 
-- [ ] workspace + crate 结构初始化
-- [ ] `botadapt-core`: Config / Event / Adapter trait / Error
-- [ ] `botadapt-cli`: 最基本的 app 启动 + 日志
-- [ ] 配置文件解析（空 adapter，空 plugin）
+- [x] workspace + crate 结构初始化
+- [x] `botadapt-core`: Config / Event / Adapter trait / Error
+- [x] `botadapt-cli`: 最基本的 app 启动 + 日志
+- [x] 配置文件解析（空 adapter，空 plugin）
 
 ### Phase 2 — QQ Adapter
 
-- [ ] 实现 `botadapt-qq` 的 WebSocket 连接
-- [ ] 事件推送接收 → 转换为统一 Event
-- [ ] API 封装（消息发送）
-- [ ] 集成进 core，端到端连通
+- [x] 实现 `botadapt-qq` 的 WebSocket 连接
+- [x] 事件推送接收 → 转换为统一 Event
+- [x] API 封装（消息发送）
+- [x] 集成进 core，端到端连通
 
 ### Phase 3 — Wasm 插件系统
 
-- [ ] Wasmtime 集成：Engine / Linker / Store
-- [ ] ABI 定义 + host 函数实现
-- [ ] `botadapt-plugin-sdk` 开发：宏 + 序列化
-- [ ] PluginManager + 热加载
-- [ ] 编写示例插件（echo）
+- [x] Wasmtime 集成：Engine / Linker / Store
+- [x] ABI 定义 + host 函数实现
+- [x] `botadapt-plugin-sdk` 开发：类型 + host_calls + prelude
+- [x] PluginManager + WASM 加载
+- [x] 编写示例插件（dice）
 
 ### Phase 4 — 加固与扩展
 

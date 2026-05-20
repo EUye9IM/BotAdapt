@@ -38,7 +38,7 @@ pub struct AdapterConfig {
     pub enabled: bool,
     pub name: String,
     #[serde(default)]
-    pub config: Option<toml::Value>,
+    pub config: toml::Table,
     #[serde(default)]
     pub channels: Vec<ChannelEntry>,
 }

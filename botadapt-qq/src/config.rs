@@ -9,7 +9,7 @@ pub struct QQConfig {
 }
 
 impl QQConfig {
-    pub fn from_toml_value(value: &toml::Value) -> Result<Self, QqError> {
+    pub fn from_toml_table(value: &toml::Table) -> Result<Self, QqError> {
         Ok(value.clone().try_into()?)
     }
 }

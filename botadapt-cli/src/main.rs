@@ -3,6 +3,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Instant;
 
+use botadapt_core::adapter::Adapter;
 use tracing_subscriber::fmt::format::FmtSpan;
 
 use botadapt_core::event::MessageContent;
@@ -14,29 +15,25 @@ use botadapt_qq::config::QQConfig;
 use botadapt_qq::PLATFORM_ID;
 
 fn builtin_commands() -> Vec<BuiltinCommand> {
-    vec![
-        BuiltinCommand {
-            name: "ping",
-            description: "回复 pong",
-            handler: Box::new(|_event, target, _args, _ctx| {
-                Ok(vec![Action::SendMessage {
-                    target: target.clone(),
-                    content: MessageContent {
-                        text: "pong!".into(),
-                        mentions: vec![],
-                        attachments: vec![],
-                    },
-                }])
-            }),
-        },
-    ]
+    vec![BuiltinCommand {
+        name: "ping",
+        description: "回复 pong",
+        handler: Box::new(|_event, target, _args, _ctx| {
+            Ok(vec![Action::SendMessage {
+                target: target.clone(),
+                content: MessageContent {
+                    text: "pong!".into(),
+                    mentions: vec![],
+                    attachments: vec![],
+                },
+            }])
+        }),
+    }]
 }
 
 #[tokio::main]
 async fn main() {
-    let config_path = env::args()
-        .nth(1)
-        .unwrap_or_else(|| "botadapt.toml".into());
+    let config_path = env::args().nth(1).unwrap_or_else(|| "botadapt.toml".into());
 
     let config = match botadapt_core::config::Config::from_file(&config_path) {
         Ok(c) => c,
@@ -57,20 +54,25 @@ async fn main() {
     let mut app = BotApp::from_config(config.clone());
 
     for adapter_cfg in &config.adapters {
-        if adapter_cfg.adapter_type == PLATFORM_ID && adapter_cfg.enabled {
-            if let Some(ref cfg) = adapter_cfg.config {
-                match QQConfig::from_toml_value(cfg) {
-                    Ok(qq_config) => {
-                        let name = &adapter_cfg.name;
-                        app.register_adapter(QQAdapter::new_arc(qq_config, name.clone()), &adapter_cfg.channels);
-                        tracing::info!(%name, "QQ 适配器已注册");
-                    }
-                    Err(e) => {
-                        tracing::error!("QQ 适配器配置解析失败: {}", e);
-                    }
+        if !adapter_cfg.enabled {
+            continue;
+        }
+        match adapter_cfg.adapter_type.as_str() {
+            PLATFORM_ID => match QQAdapter::new(&adapter_cfg.config) {
+                Ok(adapter) => {
+                    app.register_adapter(
+                        &adapter_cfg.name,
+                        Arc::new(adapter),
+                        &adapter_cfg.channels,
+                    );
+                    tracing::info!(name = adapter_cfg.name, "QQ 适配器已注册");
                 }
-            } else {
-                tracing::warn!("QQ 适配器缺少 config (app_id/client_secret)");
+                Err(e) => {
+                    tracing::error!("QQ 适配器创建失败: {}", e);
+                }
+            },
+            name => {
+                tracing::error!("未知的适配器: {}", name);
             }
         }
     }

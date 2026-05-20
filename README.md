@@ -22,26 +22,35 @@
 cargo build
 
 # 运行（需要配置文件）
-cargo run -- config/default.toml
+cargo run -- botadapt.toml
 
-# 构建插件（需要 wasm 目标）
+# 构建 dice 插件（需要 wasm 目标）
 rustup target add wasm32-wasip1
-cargo build -p botadapt-plugin-sdk --target wasm32-wasip1
+cargo build -p dice --target wasm32-wasip1 --release
+cp target/wasm32-wasip1/release/dice.wasm plugins/
 ```
 
 ## 配置
 
-TOML 格式，插件按 channel 绑定：
+TOML 格式，channel 绑定在所属 adapter 下：
 
 ```toml
+[[adapters]]
+type = "qq"
+enabled = true
+name = "default"
+[adapters.config]
+app_id = "${QQ_APP_ID}"
+client_secret = "${QQ_CLIENT_SECRET}"
+
 [[adapters.channels]]
-channel_id = "qq:group:123456"
-plugins = ["echo", "admin"]
+channel_id = "group:*"
+plugins = ["builtin", "dice"]
 ```
 
 ## 进度
 
 - [x] Phase 1 — 骨架搭建
-- [ ] Phase 2 — QQ Adapter
-- [ ] Phase 3 — Wasm 插件系统
+- [x] Phase 2 — QQ Adapter
+- [x] Phase 3 — Wasm 插件系统（运行时 + dice 示例）
 - [ ] Phase 4 — 加固与扩展

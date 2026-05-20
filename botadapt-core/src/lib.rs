@@ -55,13 +55,17 @@ impl BotApp {
     }
 
     /// 注册 Adapter 并绑定其 channels
-    pub fn register_adapter(&mut self, adapter: Arc<dyn Adapter>, channels: &[ChannelEntry]) {
-        let name = adapter.name();
+    pub fn register_adapter(
+        &mut self,
+        name: &str,
+        adapter: Arc<dyn Adapter>,
+        channels: &[ChannelEntry],
+    ) {
         for ch in channels {
             self.bindings
                 .add(&name, ch.channel_id.clone(), ch.plugins.clone());
         }
-        self.adapters.register(adapter);
+        self.adapters.register(name, adapter);
     }
 
     /// 注册 Plugin（测试注入 Mock 用）
@@ -81,31 +85,28 @@ impl BotApp {
 
     /// 注册 Channel 绑定（测试注入用）
     pub fn bind_channel(&mut self, name: &str, channel_id: &str, plugins: Vec<String>) {
-        self.bindings
-            .add(name, channel_id.to_string(), plugins);
+        self.bindings.add(name, channel_id.to_string(), plugins);
     }
 
     /// 启动事件循环
     pub async fn run(self) -> Result<()> {
-        if self.adapters.is_empty() && self.bindings.is_empty() {
-            tracing::info!("无适配器注册，静默等待");
+        if self.bindings.is_empty() {
+            tracing::info!("无频道注册，静默等待");
         }
 
         let (event_tx, mut event_rx) = mpsc::channel::<Event>(1024);
 
         // 启动所有 Adapter
-        let ids: Vec<String> = self.adapters.ids().map(|s| s.to_string()).collect();
-        for id in ids {
-            if let Some(adapter) = self.adapters.get(&id) {
-                let tx = event_tx.clone();
-                let shutdown = self.shutdown.clone();
-                let adapter = adapter.clone();
-                tokio::spawn(async move {
-                    if let Err(e) = adapter.start(tx, shutdown).await {
-                        tracing::error!("适配器 {} 启动失败: {}", id, e);
-                    }
-                });
-            }
+        for (name, adapter) in self.adapters.iter() {
+            let tx = event_tx.clone();
+            let shutdown = self.shutdown.clone();
+            let adapter = adapter.clone();
+            let name = name.to_owned();
+            tokio::spawn(async move {
+                if let Err(e) = adapter.start(name.clone(), tx, shutdown).await {
+                    tracing::error!("适配器 {} 启动失败: {}", name, e);
+                }
+            });
         }
 
         loop {
@@ -159,7 +160,10 @@ impl BotApp {
     async fn execute_action(&self, action: Action) {
         match action {
             Action::SendMessage { target, content } => {
-                let lookup_key = target.adapter_instance.as_deref().unwrap_or(&target.platform);
+                let lookup_key = target
+                    .adapter_instance
+                    .as_deref()
+                    .unwrap_or(&target.platform);
                 let span = tracing::info_span!(
                     "send_message",
                     instance = %lookup_key,
@@ -167,9 +171,7 @@ impl BotApp {
                     text = %content.text.chars().take(20).collect::<String>(),
                 );
                 async {
-                    let adapter = self.adapters
-                        .get(lookup_key)
-                        .or_else(|| self.adapters.find_by_platform(lookup_key));
+                    let adapter = self.adapters.get(lookup_key);
                     if let Some(adapter) = adapter {
                         if let Err(e) = adapter.send_message(&target, &content).await {
                             tracing::error!("发送消息失败: {}", e);
