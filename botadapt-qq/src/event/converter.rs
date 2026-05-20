@@ -66,8 +66,13 @@ mod tests {
 
         assert_eq!(event.platform, PLATFORM_ID);
         assert_eq!(event.channel_id, "c2c:USER_OPENID_ABC");
-        assert_eq!(event.timestamp, chrono_now_millis());
         assert!(event.timestamp > 0);
+        let now = chrono_now_millis();
+        assert!(
+            (now - event.timestamp).abs() < 100,
+            "timestamp 应在当前时间附近 (diff={})",
+            now - event.timestamp
+        );
 
         match event.kind {
             EventKind::Message(msg) => {

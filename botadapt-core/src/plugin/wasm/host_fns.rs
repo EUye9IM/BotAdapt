@@ -1,5 +1,5 @@
 use wasmtime::{Caller, Engine, Linker};
-use wasmtime_wasi::preview1::WasiP1Ctx;
+use wasmtime_wasi::p1::WasiP1Ctx;
 use wasmtime_wasi::WasiCtxBuilder;
 
 use crate::error::{Error, Result};
@@ -20,7 +20,7 @@ impl PluginData {
 
 pub fn create_linker(engine: &Engine) -> Result<Linker<PluginData>> {
     let mut linker = Linker::new(engine);
-    wasmtime_wasi::preview1::add_to_linker_sync(
+    wasmtime_wasi::p1::add_to_linker_sync(
         &mut linker,
         |data: &mut PluginData| &mut data.wasi,
     )

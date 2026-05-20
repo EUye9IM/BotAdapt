@@ -12,3 +12,30 @@ default-members = [
     "botadapt-qq",
     "botadapt-cli",
 ]
+
+[workspace.dependencies]
+# async
+tokio = { version = "1", features = ["full"] }
+tokio-util = "0.7"
+async-trait = "0.1"
+futures = "0.3"
+futures-util = "0.3"
+
+# serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+uuid = { version = "1", features = ["v4", "serde"] }
+
+# network
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+tokio-tungstenite = { version = "0.26", features = ["native-tls"] }
+
+# observability
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+thiserror = "2"
+
+# wasm
+wasmtime = { version = "37", default-features = false, features = ["cranelift", "runtime"] }
+wasmtime-wasi = "37"
