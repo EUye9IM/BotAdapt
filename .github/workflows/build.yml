@@ -33,7 +33,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: dice-wasm
-          path: target/wasm32-wasip1/release/dice.wasm
+          path: target/wasm32-wasip1/release
 
   build-linux:
     runs-on: ubuntu-latest
@@ -72,7 +72,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: botadapt-linux
-          path: target/x86_64-unknown-linux-musl/release/botadapt-cli
+          path: target/x86_64-unknown-linux-musl/release
 
   build-windows:
     runs-on: windows-latest
@@ -108,7 +108,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: botadapt-windows
-          path: target/x86_64-pc-windows-msvc/release/botadapt-cli.exe
+          path: target/x86_64-pc-windows-msvc/release
 
   package-linux:
     needs: [build-wasm, build-linux]
@@ -127,20 +127,22 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: dice-wasm
+          path: _artifacts/wasm
 
       - name: Download Linux binary
         uses: actions/download-artifact@v4
         with:
           name: botadapt-linux
+          path: _artifacts/linux
 
       - name: Assemble package
         run: |
           PKG="botadapt-${{ steps.version.outputs.version }}-x86_64-unknown-linux-musl"
           mkdir -p "$PKG/plugins"
-          chmod +x botadapt-cli
-          cp botadapt-cli "$PKG/botadapt"
+          chmod +x _artifacts/linux/botadapt-cli
+          cp _artifacts/linux/botadapt-cli "$PKG/botadapt"
           cp botadapt.toml "$PKG/"
-          cp dice.wasm "$PKG/plugins/"
+          cp _artifacts/wasm/dice.wasm "$PKG/plugins/"
           tar czf "$PKG.tar.gz" "$PKG"
 
       - name: Upload artifact
@@ -166,20 +168,22 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: dice-wasm
+          path: _artifacts/wasm
 
       - name: Download Windows binary
         uses: actions/download-artifact@v4
         with:
           name: botadapt-windows
+          path: _artifacts/windows
 
       - name: Assemble package
         shell: bash
         run: |
           PKG="botadapt-${{ steps.version.outputs.version }}-x86_64-pc-windows-msvc"
           mkdir -p "$PKG/plugins"
-          cp botadapt-cli.exe "$PKG/botadapt.exe"
+          cp _artifacts/windows/botadapt-cli.exe "$PKG/botadapt.exe"
           cp botadapt.toml "$PKG/"
-          cp dice.wasm "$PKG/plugins/"
+          cp _artifacts/wasm/dice.wasm "$PKG/plugins/"
           7z a -tzip "$PKG.zip" "$PKG"
 
       - name: Upload artifact
@@ -207,11 +211,13 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: botadapt-x86_64-unknown-linux-musl
+          path: _artifacts/release
 
       - name: Download Windows package
         uses: actions/download-artifact@v4
         with:
           name: botadapt-x86_64-pc-windows-msvc
+          path: _artifacts/release
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
