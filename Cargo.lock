@@ -119,7 +119,6 @@ version = "0.1.0"
 dependencies = [
  "botadapt-core",
  "botadapt-qq",
- "serde_json",
  "tokio",
  "tracing",
  "tracing-subscriber",

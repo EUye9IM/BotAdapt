@@ -14,15 +14,15 @@ pub struct PluginInstance {
 
 impl PluginInstance {
     pub fn load(
-        engine: &Engine,
+        engine: Engine,
         wasm_bytes: &[u8],
         config: serde_json::Value,
     ) -> Result<Self> {
-        let module = Module::from_binary(engine, wasm_bytes)
+        let module = Module::from_binary(&engine, wasm_bytes)
             .map_err(|e| Error::Config(e.to_string()))?;
 
-        let mut store = Store::new(engine, PluginData::new(config));
-        let linker = create_linker(engine)?;
+        let mut store = Store::new(&engine, PluginData::new(config));
+        let linker = create_linker(&engine)?;
         let instance = linker
             .instantiate(&mut store, &module)
             .map_err(|e| Error::Config(format!("WASM 实例化失败: {}", e)))?;

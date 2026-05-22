@@ -9,4 +9,3 @@ botadapt-qq = { path = "../botadapt-qq" }
 tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
-serde_json = { workspace = true }

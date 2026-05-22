@@ -14,6 +14,7 @@ use config::ChannelEntry;
 use error::Result;
 use event::Event;
 use plugin::manager::PluginManager;
+use plugin::wasm::PluginInstance;
 use plugin::Action;
 use tokio::sync::mpsc;
 use tracing::Instrument;
@@ -74,13 +75,50 @@ impl BotApp {
     }
 
     /// 加载 WASM 插件
-    pub fn load_wasm_plugin(
+    pub async fn load_wasm_plugin(
         &mut self,
         name: &str,
         path: &std::path::Path,
         config: serde_json::Value,
     ) -> Result<()> {
-        self.plugin_manager.load_wasm(name, path, config)
+        self.plugin_manager.load_wasm(name, path, config).await
+    }
+
+    /// 并行批量加载 WASM 插件
+    pub async fn load_wasm_plugins(&mut self, plugins: &[config::PluginConfig]) {
+        let engine = self.plugin_manager.engine().clone();
+        let tasks: Vec<_> = plugins
+            .iter()
+            .filter(|p| p.enabled)
+            .map(|cfg| {
+                let name = cfg.name.clone();
+                let path = std::path::PathBuf::from(&cfg.path);
+                let engine = engine.clone();
+                async move {
+                    let wasm_bytes = tokio::fs::read(&path).await.map_err(|e| e.to_string())?;
+                    let instance = tokio::task::spawn_blocking(move || {
+                        PluginInstance::load(engine, &wasm_bytes, serde_json::json!({}))
+                    })
+                    .await
+                    .map_err(|e| e.to_string())?
+                    .map_err(|e| e.to_string())?;
+                    Ok::<_, String>((name, instance))
+                }
+            })
+            .collect();
+
+        let results = futures::future::join_all(tasks).await;
+        for result in results {
+            match result {
+                Ok((name, instance)) => {
+                    self.plugin_manager.register_wasm_instance(&name, Arc::new(instance));
+                    tracing::info!("WASM 插件 {} 已加载", name);
+                }
+                Err(e) => {
+                    tracing::error!("加载 WASM 插件失败: {}", e);
+                }
+            }
+        }
     }
 
     /// 注册 Channel 绑定（测试注入用）

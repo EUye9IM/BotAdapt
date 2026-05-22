@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use super::wasm::{PluginInstance, WasmPlugin};
 use super::{Action, Plugin};
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::event::Event;
 use tracing::Instrument;
 use wasmtime::Engine;
@@ -35,15 +35,30 @@ impl PluginManager {
         self.plugins.get(name).map(|p| p.as_ref())
     }
 
-    pub fn load_wasm(
+    pub fn engine(&self) -> &Engine {
+        &self.engine
+    }
+
+    pub fn register_wasm_instance(&mut self, name: &str, instance: Arc<PluginInstance>) {
+        let plugin = Box::new(WasmPlugin::new(name.to_string(), instance));
+        self.register(plugin);
+    }
+
+    pub async fn load_wasm(
         &mut self,
         name: &str,
         path: &Path,
         config: serde_json::Value,
     ) -> Result<()> {
-        let wasm_bytes = std::fs::read(path)?;
-        let instance = Arc::new(PluginInstance::load(&self.engine, &wasm_bytes, config)?);
-        let plugin = Box::new(WasmPlugin::new(name.to_string(), instance));
+        let wasm_bytes = tokio::fs::read(path).await?;
+        let engine = self.engine.clone();
+        let plugin_name = name.to_string();
+        let instance = tokio::task::spawn_blocking(move || {
+            PluginInstance::load(engine, &wasm_bytes, config)
+        })
+        .await
+        .map_err(|e| Error::Plugin(format!("WASM spawn_blocking 失败: {}", e)))??;
+        let plugin = Box::new(WasmPlugin::new(plugin_name, Arc::new(instance)));
         self.register(plugin);
         Ok(())
     }
