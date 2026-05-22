@@ -1,0 +1,123 @@
+name: Build Release
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            ext: ""
+            archive: tar.gz
+            archive_cmd: tar czf
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            ext: ".exe"
+            archive: zip
+            archive_cmd: "7z a -tzip"
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }},wasm32-wasip1
+
+      - name: Install musl-tools (linux only)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: cargo-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: cargo-${{ matrix.target }}-
+
+      - name: Cache cargo target
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: target-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: target-${{ matrix.target }}-
+
+      - name: Build botadapt binary
+        run: cargo build -p botadapt-cli --target ${{ matrix.target }} --release
+
+      - name: Build dice WASM plugin
+        run: cargo build -p dice --target wasm32-wasip1 --release
+
+      - name: Extract version
+        id: version
+        run: |
+          VER=$(cargo metadata --format-version 1 --no-deps | jq -r '.packages[] | select(.name=="botadapt-cli") | .version')
+          echo "version=v${VER}+build.${{ github.run_number }}" >> $GITHUB_OUTPUT
+
+      - name: Assemble package
+        shell: bash
+        run: |
+          PKG="botadapt-${{ steps.version.outputs.version }}-${{ matrix.target }}"
+          mkdir -p "$PKG/plugins"
+
+          cp target/${{ matrix.target }}/release/botadapt-cli${{ matrix.ext }} "$PKG/botadapt${{ matrix.ext }}"
+          cp botadapt.toml "$PKG/"
+          cp target/wasm32-wasip1/release/dice.wasm "$PKG/plugins/"
+
+          if [ "${{ matrix.archive }}" = "zip" ]; then
+            7z a -tzip "$PKG.zip" "$PKG"
+          else
+            tar czf "$PKG.tar.gz" "$PKG"
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: botadapt-${{ matrix.target }}
+          path: botadapt-*.${{ matrix.archive }}
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Get version
+        id: version
+        run: |
+          VER=$(cargo metadata --format-version 1 --no-deps | jq -r '.packages[] | select(.name=="botadapt-cli") | .version')
+          echo "tag=v${VER}-build.${{ github.run_number }}" >> $GITHUB_OUTPUT
+
+      - name: Download Linux artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: botadapt-x86_64-unknown-linux-musl
+
+      - name: Download Windows artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: botadapt-x86_64-pc-windows-msvc
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: ${{ steps.version.outputs.tag }}
+          files: |
+            *.tar.gz
+            *.zip
+          draft: false
+          prerelease: false
