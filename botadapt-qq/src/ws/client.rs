@@ -116,16 +116,34 @@ async fn connect_and_dispatch(
     );
 
     let latest_seq = Arc::new(AtomicI64::new(0));
+    let (ack_tx, ack_rx) = mpsc::unbounded_channel::<()>();
+    let (hb_err_tx, mut hb_err_rx) = mpsc::unbounded_channel::<()>();
+
     let hb_tx = out_tx.clone();
     let hb_seq = latest_seq.clone();
     let hb_shutdown = shutdown.clone();
     tokio::spawn(async move {
-        super::heartbeat::run(hb_tx, hb_seq, hello.heartbeat_interval, hb_shutdown).await;
+        super::heartbeat::run(
+            hb_tx,
+            hb_seq,
+            hello.heartbeat_interval,
+            hb_shutdown,
+            ack_rx,
+            hb_err_tx,
+        )
+        .await;
     });
 
     loop {
         tokio::select! {
             _ = shutdown.cancelled() => break,
+            timeout = hb_err_rx.recv() => {
+                if timeout.is_some() {
+                    return Err(QqError::Ws(
+                        "心跳超时: 3秒内未收到 OpCode 11 响应".into(),
+                    ));
+                }
+            }
             msg = ws_read.next() => {
                 match msg {
                     Some(Ok(WsMessage::Text(text))) => {
@@ -162,6 +180,9 @@ async fn connect_and_dispatch(
                             9 => {
                                 tracing::error!("收到 Invalid Session 信号，会话失效");
                                 return Ok(DispatchAction::Done);
+                            }
+                            11 => {
+                                let _ = ack_tx.send(());
                             }
                             _ => {}
                         }
