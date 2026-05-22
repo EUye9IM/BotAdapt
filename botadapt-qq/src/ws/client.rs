@@ -14,6 +14,11 @@ use crate::error::QqError;
 
 const INTENTS_C2C: i64 = 1 << 25;
 
+enum DispatchAction {
+    Done,
+    Reconnect,
+}
+
 pub async fn run_loop(
     api: Arc<QqApi>,
     event_tx: mpsc::Sender<botadapt_core::event::Event>,
@@ -26,14 +31,14 @@ pub async fn run_loop(
             _ = shutdown.cancelled() => break,
             result = connect_and_dispatch(&api, &event_tx, &shutdown, &name) => {
                 match result {
-                    Ok(()) => break,
+                    Ok(DispatchAction::Done) => break,
+                    Ok(DispatchAction::Reconnect) => continue,
                     Err(e) => {
                         retry_count += 1;
                         tracing::warn!(
                             retry_count,
-                            "WebSocket 断开: {}, {}秒后重连 (第 {} 次)",
+                            "WebSocket 断开: {}, 30秒后重连 (第 {} 次)",
                             e,
-                            30,
                             retry_count,
                         );
                     }
@@ -41,7 +46,7 @@ pub async fn run_loop(
                 if shutdown.is_cancelled() {
                     break;
                 }
-                tokio::time::sleep(Duration::from_secs(5)).await;
+                tokio::time::sleep(Duration::from_secs(30)).await;
             }
         }
     }
@@ -52,7 +57,7 @@ async fn connect_and_dispatch(
     event_tx: &mpsc::Sender<botadapt_core::event::Event>,
     shutdown: &CancellationToken,
     name: &str,
-) -> Result<(), QqError> {
+) -> Result<DispatchAction, QqError> {
     let span = tracing::info_span!("ws_connect");
     let _guard = span.enter();
 
@@ -145,17 +150,18 @@ async fn connect_and_dispatch(
                                         crate::event::converter::c2c_message_create(&payload.d, name)
                                     {
                                         if event_tx.send(event).await.is_err() {
-                                            return Ok(());
+                                            return Ok(DispatchAction::Done);
                                         }
                                     }
                                 }
                             }
-                            7 | 9 => {
-                                tracing::warn!(
-                                    opcode = payload.op,
-                                    "收到重连/无效会话信号"
-                                );
-                                return Ok(());
+                            7 => {
+                                tracing::error!("收到 Reconnect 信号，将重新连接");
+                                return Ok(DispatchAction::Reconnect);
+                            }
+                            9 => {
+                                tracing::error!("收到 Invalid Session 信号，会话失效");
+                                return Ok(DispatchAction::Done);
                             }
                             _ => {}
                         }
@@ -167,7 +173,7 @@ async fn connect_and_dispatch(
                     }
                     Some(Ok(WsMessage::Close(_))) | None => {
                         tracing::info!("WebSocket 连接关闭");
-                        return Ok(());
+                        return Ok(DispatchAction::Done);
                     }
                     Some(Err(e)) => {
                         tracing::error!("WebSocket 读取错误: {}", e);
@@ -182,7 +188,7 @@ async fn connect_and_dispatch(
     drop(out_tx);
     let _ = writer.await;
 
-    Ok(())
+    Ok(DispatchAction::Done)
 }
 
 async fn read_hello(
