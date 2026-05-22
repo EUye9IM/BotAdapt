@@ -6,7 +6,37 @@ on:
   workflow_dispatch:
 
 jobs:
+  build-wasm:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip1
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: cargo-wasm-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: cargo-wasm-
+
+      - name: Build dice WASM plugin
+        run: cargo build -p dice --target wasm32-wasip1 --release
+
+      - name: Upload dice.wasm
+        uses: actions/upload-artifact@v4
+        with:
+          name: dice-wasm
+          path: target/wasm32-wasip1/release/dice.wasm
+
   build:
+    needs: build-wasm
     strategy:
       matrix:
         include:
@@ -14,12 +44,10 @@ jobs:
             target: x86_64-unknown-linux-musl
             ext: ""
             archive: tar.gz
-            archive_cmd: tar czf
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             ext: ".exe"
             archive: zip
-            archive_cmd: "7z a -tzip"
 
     runs-on: ${{ matrix.os }}
 
@@ -30,7 +58,7 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.target }},wasm32-wasip1
+          targets: ${{ matrix.target }}
 
       - name: Install musl-tools (linux only)
         if: runner.os == 'Linux'
@@ -55,8 +83,11 @@ jobs:
       - name: Build botadapt binary
         run: cargo build -p botadapt-cli --target ${{ matrix.target }} --release
 
-      - name: Build dice WASM plugin
-        run: cargo build -p dice --target wasm32-wasip1 --release
+      - name: Download dice.wasm
+        uses: actions/download-artifact@v4
+        with:
+          name: dice-wasm
+          path: plugins
 
       - name: Extract version
         id: version
@@ -72,7 +103,7 @@ jobs:
 
           cp target/${{ matrix.target }}/release/botadapt-cli${{ matrix.ext }} "$PKG/botadapt${{ matrix.ext }}"
           cp botadapt.toml "$PKG/"
-          cp target/wasm32-wasip1/release/dice.wasm "$PKG/plugins/"
+          cp plugins/dice.wasm "$PKG/plugins/"
 
           if [ "${{ matrix.archive }}" = "zip" ]; then
             7z a -tzip "$PKG.zip" "$PKG"
