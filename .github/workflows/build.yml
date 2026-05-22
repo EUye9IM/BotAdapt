@@ -225,7 +225,7 @@ jobs:
           tag_name: ${{ steps.version.outputs.tag }}
           name: ${{ steps.version.outputs.tag }}
           files: |
-            *.tar.gz
-            *.zip
+            _artifacts/release/*.tar.gz
+            _artifacts/release/*.zip
           draft: false
           prerelease: false
