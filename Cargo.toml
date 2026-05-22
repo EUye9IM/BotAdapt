@@ -29,7 +29,7 @@ uuid = { version = "1", features = ["v4", "serde"] }
 
 # network
 reqwest = { version = "0.13", features = ["json"] }
-tokio-tungstenite = { version = "0.29", features = ["native-tls"] }
+tokio-tungstenite = { version = "0.29", default-features = false, features = ["connect", "handshake", "rustls-tls-native-roots"] }
 
 # observability
 tracing = "0.1"
