@@ -132,7 +132,7 @@ impl BotApp {
             tracing::info!("无频道注册，静默等待");
         }
 
-        let (event_tx, mut event_rx) = mpsc::channel::<Event>(1024);
+        let (event_tx, mut event_rx) = mpsc::unbounded_channel::<Event>();
 
         // 启动所有 Adapter
         for (name, adapter) in self.adapters.iter() {
@@ -140,8 +140,13 @@ impl BotApp {
             let shutdown = self.shutdown.clone();
             let adapter = adapter.clone();
             let name = name.to_owned();
+            let emit_name = name.clone();
+            let emit = Box::new(move |mut event: Event| {
+                event.source_adapter = Some(emit_name.clone());
+                let _ = tx.send(event);
+            });
             tokio::spawn(async move {
-                if let Err(e) = adapter.start(name.clone(), tx, shutdown).await {
+                if let Err(e) = adapter.start(emit, shutdown).await {
                     tracing::error!("适配器 {} 启动失败: {}", name, e);
                 }
             });

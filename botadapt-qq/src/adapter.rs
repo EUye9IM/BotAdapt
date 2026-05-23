@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use botadapt_core::adapter::Adapter;
@@ -29,8 +28,7 @@ impl QQAdapter {
 impl Adapter for QQAdapter {
     async fn start(
         &self,
-        self_name: String,
-        tx: mpsc::Sender<Event>,
+        emit: Box<dyn Fn(Event) + Send + Sync + 'static>,
         shutdown: CancellationToken,
     ) -> Result<()> {
         tracing::info!("QQ 适配器启动");
@@ -38,7 +36,7 @@ impl Adapter for QQAdapter {
         let api = self.api.clone();
         let ws_shutdown = shutdown.clone();
         tokio::spawn(async move {
-            crate::ws::client::run_loop(api, tx, ws_shutdown, self_name).await;
+            crate::ws::client::run_loop(api, emit, ws_shutdown).await;
         });
 
         shutdown.cancelled().await;

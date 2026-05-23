@@ -21,15 +21,14 @@ enum DispatchAction {
 
 pub async fn run_loop(
     api: Arc<QqApi>,
-    event_tx: mpsc::Sender<botadapt_core::event::Event>,
+    emit: Box<dyn Fn(botadapt_core::event::Event) + Send + Sync + 'static>,
     shutdown: CancellationToken,
-    name: String,
 ) {
     let mut retry_count = 0u32;
     loop {
         tokio::select! {
             _ = shutdown.cancelled() => break,
-            result = connect_and_dispatch(&api, &event_tx, &shutdown, &name) => {
+            result = connect_and_dispatch(&api, &emit, &shutdown) => {
                 match result {
                     Ok(DispatchAction::Done) => break,
                     Ok(DispatchAction::Reconnect) => continue,
@@ -54,9 +53,8 @@ pub async fn run_loop(
 
 async fn connect_and_dispatch(
     api: &QqApi,
-    event_tx: &mpsc::Sender<botadapt_core::event::Event>,
+    emit: &(dyn Fn(botadapt_core::event::Event) + Send + Sync + 'static),
     shutdown: &CancellationToken,
-    name: &str,
 ) -> Result<DispatchAction, QqError> {
     let span = tracing::info_span!("ws_connect");
     let _guard = span.enter();
@@ -165,11 +163,9 @@ async fn connect_and_dispatch(
                                 let t = payload.t.as_deref().unwrap_or("");
                                 if t == "C2C_MESSAGE_CREATE" {
                                     if let Some(event) =
-                                        crate::event::converter::c2c_message_create(&payload.d, name)
+                                        crate::event::converter::c2c_message_create(&payload.d)
                                     {
-                                        if event_tx.send(event).await.is_err() {
-                                            return Ok(DispatchAction::Done);
-                                        }
+                                        emit(event);
                                     }
                                 }
                             }
