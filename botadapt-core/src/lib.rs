@@ -70,8 +70,8 @@ impl BotApp {
     }
 
     /// 注册 Plugin（测试注入 Mock 用）
-    pub fn register_plugin(&mut self, plugin: Box<dyn plugin::Plugin>) {
-        self.plugin_manager.register(plugin);
+    pub fn register_plugin(&mut self, name: &str, plugin: Box<dyn plugin::Plugin>) {
+        self.plugin_manager.register(name, plugin);
     }
 
     /// 加载 WASM 插件

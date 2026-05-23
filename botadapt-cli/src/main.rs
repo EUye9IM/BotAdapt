@@ -77,8 +77,8 @@ async fn main() {
     let ctx = Arc::new(CmdContext {
         start_time: Instant::now(),
     });
-    let builtin = BuiltinPlugin::new("builtin", builtin_commands(), ctx);
-    app.register_plugin(Box::new(builtin));
+    let builtin = BuiltinPlugin::new(builtin_commands(), ctx);
+    app.register_plugin("builtin", Box::new(builtin));
 
     app.load_wasm_plugins(&config.plugins).await;
 

@@ -26,19 +26,17 @@ pub struct BuiltinCommand {
 
 /// 内置命令插件。扫描消息中 `/` 开头的命令，匹配后调用对应 handler。
 pub struct BuiltinPlugin {
-    name: String,
     commands: HashMap<String, BuiltinCommand>,
     ctx: Arc<CmdContext>,
 }
 
 impl BuiltinPlugin {
-    pub fn new(name: &str, commands: Vec<BuiltinCommand>, ctx: Arc<CmdContext>) -> Self {
+    pub fn new(commands: Vec<BuiltinCommand>, ctx: Arc<CmdContext>) -> Self {
         let mut cmd_map = HashMap::new();
         for cmd in commands {
             cmd_map.insert(format!("/{}", cmd.name), cmd);
         }
         Self {
-            name: name.to_string(),
             commands: cmd_map,
             ctx,
         }
@@ -47,10 +45,6 @@ impl BuiltinPlugin {
 
 #[async_trait]
 impl Plugin for BuiltinPlugin {
-    fn name(&self) -> &str {
-        &self.name
-    }
-
     async fn handle_event(&self, event: Event) -> Result<Vec<Action>> {
         let (target, text) = match &event.kind {
             EventKind::Message(msg) => {

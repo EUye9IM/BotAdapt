@@ -19,8 +19,6 @@ pub enum Action {
 
 #[async_trait]
 pub trait Plugin: Send + Sync {
-    fn name(&self) -> &str;
-
     async fn handle_event(&self, event: Event) -> Result<Vec<Action>>;
 
     async fn init(&self, _config: &serde_json::Value) -> Result<()> {

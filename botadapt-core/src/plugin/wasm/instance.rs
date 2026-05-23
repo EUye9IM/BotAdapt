@@ -97,22 +97,17 @@ use crate::event::Event;
 use crate::plugin::{Action, Plugin};
 
 pub struct WasmPlugin {
-    name: String,
     instance: Arc<PluginInstance>,
 }
 
 impl WasmPlugin {
-    pub fn new(name: String, instance: Arc<PluginInstance>) -> Self {
-        Self { name, instance }
+    pub fn new(instance: Arc<PluginInstance>) -> Self {
+        Self { instance }
     }
 }
 
 #[async_trait]
 impl Plugin for WasmPlugin {
-    fn name(&self) -> &str {
-        &self.name
-    }
-
     async fn handle_event(&self, event: Event) -> Result<Vec<Action>> {
         let event_json = serde_json::to_vec(&event)?;
         let result_json = self.instance.call_handle_event(&event_json)?;

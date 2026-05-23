@@ -22,9 +22,8 @@ impl PluginManager {
         }
     }
 
-    pub fn register(&mut self, plugin: Box<dyn Plugin>) {
-        let name = plugin.name().to_string();
-        self.plugins.insert(name, plugin);
+    pub fn register(&mut self, name: &str, plugin: Box<dyn Plugin>) {
+        self.plugins.insert(name.to_string(), plugin);
     }
 
     pub fn unregister(&mut self, name: &str) -> Option<Box<dyn Plugin>> {
@@ -40,8 +39,8 @@ impl PluginManager {
     }
 
     pub fn register_wasm_instance(&mut self, name: &str, instance: Arc<PluginInstance>) {
-        let plugin = Box::new(WasmPlugin::new(name.to_string(), instance));
-        self.register(plugin);
+        let plugin = Box::new(WasmPlugin::new(instance));
+        self.register(name, plugin);
     }
 
     pub async fn load_wasm(
@@ -58,8 +57,8 @@ impl PluginManager {
         })
         .await
         .map_err(|e| Error::Plugin(format!("WASM spawn_blocking 失败: {}", e)))??;
-        let plugin = Box::new(WasmPlugin::new(plugin_name, Arc::new(instance)));
-        self.register(plugin);
+        let plugin = Box::new(WasmPlugin::new(Arc::new(instance)));
+        self.register(&plugin_name, plugin);
         Ok(())
     }
 
