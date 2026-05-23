@@ -2,8 +2,6 @@ use wasmtime::{Caller, Engine, Linker};
 use wasmtime_wasi::p1::WasiP1Ctx;
 use wasmtime_wasi::WasiCtxBuilder;
 
-use crate::error::{Error, Result};
-
 pub struct PluginData {
     pub config: serde_json::Value,
     pub wasi: WasiP1Ctx,
@@ -18,41 +16,42 @@ impl PluginData {
     }
 }
 
-pub fn create_linker(engine: &Engine) -> Result<Linker<PluginData>> {
+pub fn create_linker(engine: &Engine) -> anyhow::Result<Linker<PluginData>> {
     let mut linker = Linker::new(engine);
-    wasmtime_wasi::p1::add_to_linker_sync(
-        &mut linker,
-        |data: &mut PluginData| &mut data.wasi,
-    )
-    .map_err(|e| Error::Config(format!("注册 WASI 失败: {}", e)))?;
+    wasmtime_wasi::p1::add_to_linker_sync(&mut linker, |data: &mut PluginData| &mut data.wasi)
+        .map_err(|e| anyhow::anyhow!("注册 WASI 失败: {}", e))?;
     add_host_functions(&mut linker)?;
     Ok(linker)
 }
 
-fn add_host_functions(linker: &mut Linker<PluginData>) -> Result<()> {
+fn add_host_functions(linker: &mut Linker<PluginData>) -> anyhow::Result<()> {
     linker
-        .func_wrap("env", "host_log", |mut caller: Caller<'_, PluginData>, level: i32, ptr: i32, len: i32| {
-            if ptr == 0 || len <= 0 {
-                return;
-            }
-            let mem = match caller.get_export("memory") {
-                Some(wasmtime::Extern::Memory(m)) => m,
-                _ => return,
-            };
-            let mut buf = vec![0u8; len as usize];
-            if mem.read(&caller, ptr as usize, &mut buf).is_err() {
-                return;
-            }
-            let msg = String::from_utf8_lossy(&buf);
-            match level {
-                1 => tracing::error!("[wasm] {}", msg),
-                2 => tracing::warn!("[wasm] {}", msg),
-                3 => tracing::info!("[wasm] {}", msg),
-                4 => tracing::debug!("[wasm] {}", msg),
-                _ => tracing::trace!("[wasm] {}", msg),
-            }
-        })
-        .map_err(|e| Error::Config(format!("注册 host_log 失败: {}", e)))?;
+        .func_wrap(
+            "env",
+            "host_log",
+            |mut caller: Caller<'_, PluginData>, level: i32, ptr: i32, len: i32| {
+                if ptr == 0 || len <= 0 {
+                    return;
+                }
+                let mem = match caller.get_export("memory") {
+                    Some(wasmtime::Extern::Memory(m)) => m,
+                    _ => return,
+                };
+                let mut buf = vec![0u8; len as usize];
+                if mem.read(&caller, ptr as usize, &mut buf).is_err() {
+                    return;
+                }
+                let msg = String::from_utf8_lossy(&buf);
+                match level {
+                    1 => tracing::error!("[wasm] {}", msg),
+                    2 => tracing::warn!("[wasm] {}", msg),
+                    3 => tracing::info!("[wasm] {}", msg),
+                    4 => tracing::debug!("[wasm] {}", msg),
+                    _ => tracing::trace!("[wasm] {}", msg),
+                }
+            },
+        )
+        .map_err(|e| anyhow::anyhow!("注册 host_log 失败: {}", e))?;
 
     linker
         .func_wrap(
@@ -77,7 +76,7 @@ fn add_host_functions(linker: &mut Linker<PluginData>) -> Result<()> {
                 write_len as i32
             },
         )
-        .map_err(|e| Error::Config(format!("注册 host_get_config 失败: {}", e)))?;
+        .map_err(|e| anyhow::anyhow!("注册 host_get_config 失败: {}", e))?;
 
     Ok(())
 }

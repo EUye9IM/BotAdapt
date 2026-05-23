@@ -67,13 +67,10 @@ mod tests {
             run(tx, h_seq, 50, h_shutdown, ack_rx, hb_err_tx).await;
         });
 
-        let msg = tokio::time::timeout(
-            std::time::Duration::from_millis(200),
-            rx.recv(),
-        )
-        .await
-        .expect("超时")
-        .expect("channel 已关闭");
+        let msg = tokio::time::timeout(std::time::Duration::from_millis(200), rx.recv())
+            .await
+            .expect("超时")
+            .expect("channel 已关闭");
 
         let parsed: serde_json::Value = serde_json::from_str(&msg).expect("心跳应为 JSON");
         assert_eq!(parsed["op"], 1);
@@ -82,13 +79,10 @@ mod tests {
         let _ = ack_tx.send(());
 
         seq.store(99, Ordering::SeqCst);
-        let msg2 = tokio::time::timeout(
-            std::time::Duration::from_millis(200),
-            rx.recv(),
-        )
-        .await
-        .expect("超时")
-        .expect("channel 已关闭");
+        let msg2 = tokio::time::timeout(std::time::Duration::from_millis(200), rx.recv())
+            .await
+            .expect("超时")
+            .expect("channel 已关闭");
 
         let parsed2: serde_json::Value = serde_json::from_str(&msg2).unwrap();
         assert_eq!(parsed2["op"], 1);
@@ -131,13 +125,11 @@ mod tests {
             run(tx, seq, 10, h_shutdown, ack_rx, hb_err_tx).await;
         });
 
-        let timeout_signal = tokio::time::timeout(
-            std::time::Duration::from_secs(5),
-            hb_err_rx.recv(),
-        )
-        .await
-        .expect("应在 5 秒内收到超时信号")
-        .expect("hb_err channel 不应关闭");
+        let timeout_signal =
+            tokio::time::timeout(std::time::Duration::from_secs(5), hb_err_rx.recv())
+                .await
+                .expect("应在 5 秒内收到超时信号")
+                .expect("hb_err channel 不应关闭");
 
         assert_eq!(timeout_signal, ());
 

@@ -16,3 +16,5 @@ thiserror = { workspace = true }
 futures = { workspace = true }
 wasmtime = { workspace = true }
 wasmtime-wasi = { workspace = true }
+serde-inline-default = { workspace = true }
+anyhow = {workspace = true}

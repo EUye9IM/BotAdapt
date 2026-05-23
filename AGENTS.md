@@ -14,16 +14,20 @@ BotAdapt is a Rust + Tokio async bot framework. Design doc: `DESIGN.md`.
 
 | Crate | Role |
 |-------|------|
-| `botadapt-core` | Framework: Config, Event, EventBus, Adapter trait, PluginManager, ChannelBinding |
+| `botadapt-core` | Framework: Config, AdapterEvent/PluginEvent, Adapter trait, PluginManager, ChannelBinding |
 | `botadapt-qq` | QQ official bot API adapter (WebSocket + HTTP) |
 | `botadapt-plugin-sdk` | Plugin dev library; `wasm32-wasip1` target; no_std |
 | `botadapt-cli` | Binary entrypoint |
 
 ## Key types
 
-- `Event` has `channel_id: String`, `platform: String`, `source_adapter: Option<String>` (identifying which adapter instance produced it)
-- `MessageTarget { platform, user_id, group_id?, channel_id?, adapter_instance? }` — host looks up AdapterRegistry by `adapter_instance` (fallback `platform`)
-- `Adapter` trait: `start(self_name, tx, shutdown)`, `send_message(target, content)`. Name is managed externally by `AdapterRegistry`
+- `AdapterEvent { Message(MessageEvent) }` — adapter 产生的事件，通过 `emit` 回调传入 Core
+- `PluginEvent { Message(MessageEvent) }` — 插件处理完毕后返回的事件（替代旧 Action）
+- `MessageEvent { meta: MessageMeta, content: MessageContent }` — 统一消息体
+- `MessageMeta { Private(PrivateMeta { user_id }) }` — 消息来源元信息（群聊待扩展）
+- `MessageContent { text: String }` — 消息文本内容
+- `AdapterEventWithName { adapter_name, event }` / `PluginEventWithName { adapter_name, event }` — Core 内部带来源标识的包装类型
+- `Adapter` trait: `start(emit: Box<dyn Fn(AdapterEvent) + Send + Sync>, shutdown)`, `send_message(&MessageEvent)`
 - Wasm `Store` is per-`PluginInstance` wrapped in `Mutex` (not Send+Sync); `Engine` is shared
 
 ## Config
@@ -42,8 +46,17 @@ app_id = "${QQ_APP_ID}"
 client_secret = "${QQ_CLIENT_SECRET}"
 
 [[adapters.channels]]
-channel_id = "group:123456"
-plugins = ["echo", "admin"]
+channel_id = "*"
+plugins = ["builtin", "dice"]
+
+# TODO: 待 MessageMeta 加入 Group 变体后启用
+# [[adapters.channels]]
+# channel_id = "c2c:USER_OPENID"
+# plugins = ["dice"]
+#
+# [[adapters.channels]]
+# channel_id = "group:123456"
+# plugins = ["echo", "admin"]
 ```
 
 ## Tech stack
@@ -69,10 +82,9 @@ Uses `tracing` crate. **Every `ERROR` must be logged before returned; every exte
 **Must use span** to correlate logs across concurrent events. Every `Event` dispatch creates a span. Every HTTP call uses `#[tracing::instrument]`. Every plugin execution creates a child span.
 
 ```
-Event span (event_id, channel_id, platform)
+Event span (adapter_id, user_id, text)
   ├── Plugin span (plugin=name)
-  │     ├── Adapter::send_message span (user_id, text_snippet)
-  │     └── ...
+  │     └── send_message span (instance, user_id, text)
   └── Plugin span (plugin=name2)
 ```
 
@@ -94,7 +106,7 @@ Or at minimum `FmtSpan::NEW | FmtSpan::CLOSE` for lifecycle visibility.
 
 **ws/heartbeat.rs**: TRACE on each tick (interval + seq sent).
 
-**event/converter.rs**: DEBUG on conversion result (channel_id, content snippet). TRACE on raw input JSON.
+**event/converter.rs**: DEBUG on conversion result (user_id, content snippet). TRACE on raw input JSON.
 
 **adapter.rs**: INFO on start/stop. DEBUG on send_message (target, content snippet).
 
@@ -125,7 +137,7 @@ tracing_subscriber::fmt()
 ## Design principles
 
 1. Adapter thin, Core thick
-2. Plugin platform-agnostic (use `event.platform` if needed)
+2. Plugin platform-agnostic
 3. Broadcast model: all bound plugins run in parallel
 4. Graceful degradation: adapter auto-reconnect, plugin crash isolated
 5. Async end-to-end

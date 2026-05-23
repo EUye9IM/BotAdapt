@@ -3,9 +3,8 @@ use std::path::Path;
 use std::sync::Arc;
 
 use super::wasm::{PluginInstance, WasmPlugin};
-use super::{Action, Plugin};
-use crate::error::{Error, Result};
-use crate::event::Event;
+use super::Plugin;
+use crate::event::{AdapterEvent, PluginEvent};
 use tracing::Instrument;
 use wasmtime::Engine;
 
@@ -23,6 +22,7 @@ impl PluginManager {
     }
 
     pub fn register(&mut self, name: &str, plugin: Box<dyn Plugin>) {
+        tracing::debug!("regist plugin {}", name);
         self.plugins.insert(name.to_string(), plugin);
     }
 
@@ -48,21 +48,24 @@ impl PluginManager {
         name: &str,
         path: &Path,
         config: serde_json::Value,
-    ) -> Result<()> {
+    ) -> anyhow::Result<()> {
         let wasm_bytes = tokio::fs::read(path).await?;
         let engine = self.engine.clone();
         let plugin_name = name.to_string();
-        let instance = tokio::task::spawn_blocking(move || {
-            PluginInstance::load(engine, &wasm_bytes, config)
-        })
-        .await
-        .map_err(|e| Error::Plugin(format!("WASM spawn_blocking 失败: {}", e)))??;
+        let instance =
+            tokio::task::spawn_blocking(move || PluginInstance::load(engine, &wasm_bytes, config))
+                .await
+                .map_err(|e| anyhow::anyhow!("WASM spawn_blocking 失败: {}", e))??;
         let plugin = Box::new(WasmPlugin::new(Arc::new(instance)));
         self.register(&plugin_name, plugin);
         Ok(())
     }
 
-    pub async fn dispatch_parallel(&self, event: &Event, names: &[String]) -> Vec<Action> {
+    pub async fn dispatch_parallel(
+        &self,
+        event: &AdapterEvent,
+        names: &[String],
+    ) -> Vec<PluginEvent> {
         let mut tasks = Vec::new();
 
         for name in names {

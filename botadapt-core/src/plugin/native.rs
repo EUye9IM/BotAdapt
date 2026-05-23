@@ -1,21 +1,17 @@
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Instant;
 
 use async_trait::async_trait;
 
-use crate::error::Result;
-use crate::event::{Event, EventKind, MessageTarget};
-use crate::plugin::{Action, Plugin};
+use crate::event::{AdapterEvent, PluginEvent};
+use crate::plugin::Plugin;
 
 /// 命令间共享的上下文（启动时间等）
-pub struct CmdContext {
-    pub start_time: Instant,
-}
+pub struct CmdContext {}
 
 /// 命令处理函数签名：接收 Event（含平台信息）、回复目标、参数文本、共享上下文
 pub type CmdHandler =
-    Box<dyn Fn(&Event, &MessageTarget, &str, &CmdContext) -> Result<Vec<Action>> + Send + Sync>;
+    Box<dyn Fn(&AdapterEvent, &CmdContext) -> anyhow::Result<Vec<PluginEvent>> + Send + Sync>;
 
 /// 单个内置命令
 pub struct BuiltinCommand {
@@ -45,27 +41,13 @@ impl BuiltinPlugin {
 
 #[async_trait]
 impl Plugin for BuiltinPlugin {
-    async fn handle_event(&self, event: Event) -> Result<Vec<Action>> {
-        let (target, text) = match &event.kind {
-            EventKind::Message(msg) => {
-                let target = MessageTarget {
-                    platform: event.platform.clone(),
-                    user_id: msg.user_id.clone(),
-                    group_id: msg.group_id.clone(),
-                    channel_id: msg.channel_id.clone(),
-                    adapter_instance: event.source_adapter.clone(),
-                };
-                (target, msg.content.text.clone())
-            }
-            _ => return Ok(vec![]),
-        };
-
-        if let Some((cmd_name, args)) = split_cmd(&text) {
+    async fn handle_event(&self, event: AdapterEvent) -> anyhow::Result<Vec<PluginEvent>> {
+        let AdapterEvent::Message(msg) = &event;
+        if let Some((cmd_name, _args)) = split_cmd(&msg.content.text) {
             if let Some(cmd) = self.commands.get(cmd_name) {
-                return (cmd.handler)(&event, &target, args, &self.ctx);
+                return (cmd.handler)(&event, &self.ctx);
             }
         }
-
         Ok(vec![])
     }
 }

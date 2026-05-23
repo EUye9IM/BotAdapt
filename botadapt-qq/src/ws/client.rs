@@ -21,7 +21,7 @@ enum DispatchAction {
 
 pub async fn run_loop(
     api: Arc<QqApi>,
-    emit: Box<dyn Fn(botadapt_core::event::Event) + Send + Sync + 'static>,
+    emit: Box<dyn Fn(botadapt_core::event::AdapterEvent) + Send + Sync + 'static>,
     shutdown: CancellationToken,
 ) {
     let mut retry_count = 0u32;
@@ -53,7 +53,7 @@ pub async fn run_loop(
 
 async fn connect_and_dispatch(
     api: &QqApi,
-    emit: &(dyn Fn(botadapt_core::event::Event) + Send + Sync + 'static),
+    emit: &(dyn Fn(botadapt_core::event::AdapterEvent) + Send + Sync + 'static),
     shutdown: &CancellationToken,
 ) -> Result<DispatchAction, QqError> {
     let span = tracing::info_span!("ws_connect");

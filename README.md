@@ -10,7 +10,7 @@
 
 | Crate | 说明 |
 |-------|------|
-| `botadapt-core` | 框架核心：Event、Adapter trait、PluginManager、ChannelBinding |
+| `botadapt-core` | 框架核心：AdapterEvent/PluginEvent、Adapter trait、PluginManager、ChannelBinding |
 | `botadapt-qq` | QQ 官方 Bot API 适配器 |
 | `botadapt-cli` | CLI 入口 |
 | `botadapt-plugin-sdk` | 插件开发 SDK（wasm32-wasip1） |
@@ -44,8 +44,17 @@ app_id = "${QQ_APP_ID}"
 client_secret = "${QQ_CLIENT_SECRET}"
 
 [[adapters.channels]]
-channel_id = "group:*"
+channel_id = "*"
 plugins = ["builtin", "dice"]
+
+# TODO: 待 MessageMeta 加入 Group 变体后启用按用户/群组的精确绑定
+# [[adapters.channels]]
+# channel_id = "c2c:USER_OPENID"
+# plugins = ["dice"]
+#
+# [[adapters.channels]]
+# channel_id = "group:123456"
+# plugins = ["builtin", "echo"]
 ```
 
 ## 进度

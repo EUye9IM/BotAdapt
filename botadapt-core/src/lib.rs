@@ -1,7 +1,6 @@
 pub mod adapter;
 pub mod binding;
 pub mod config;
-pub mod error;
 pub mod event;
 pub mod plugin;
 
@@ -11,13 +10,13 @@ use adapter::registry::AdapterRegistry;
 use adapter::Adapter;
 use binding::ChannelBinding;
 use config::ChannelEntry;
-use error::Result;
-use event::Event;
+use event::AdapterEvent;
 use plugin::manager::PluginManager;
 use plugin::wasm::PluginInstance;
-use plugin::Action;
 use tokio::sync::mpsc;
 use tracing::Instrument;
+
+use crate::event::{AdapterEventWithName, MessageMeta, PluginEvent, PluginEventWithName};
 
 pub struct BotApp {
     #[allow(dead_code)]
@@ -80,7 +79,7 @@ impl BotApp {
         name: &str,
         path: &std::path::Path,
         config: serde_json::Value,
-    ) -> Result<()> {
+    ) -> anyhow::Result<()> {
         self.plugin_manager.load_wasm(name, path, config).await
     }
 
@@ -111,7 +110,8 @@ impl BotApp {
         for result in results {
             match result {
                 Ok((name, instance)) => {
-                    self.plugin_manager.register_wasm_instance(&name, Arc::new(instance));
+                    self.plugin_manager
+                        .register_wasm_instance(&name, Arc::new(instance));
                     tracing::info!("WASM 插件 {} 已加载", name);
                 }
                 Err(e) => {
@@ -127,12 +127,12 @@ impl BotApp {
     }
 
     /// 启动事件循环
-    pub async fn run(self) -> Result<()> {
+    pub async fn run(self) -> anyhow::Result<()> {
         if self.bindings.is_empty() {
             tracing::info!("无频道注册，静默等待");
         }
 
-        let (event_tx, mut event_rx) = mpsc::unbounded_channel::<Event>();
+        let (event_tx, mut event_rx) = mpsc::unbounded_channel::<AdapterEventWithName>();
 
         // 启动所有 Adapter
         for (name, adapter) in self.adapters.iter() {
@@ -140,14 +140,18 @@ impl BotApp {
             let shutdown = self.shutdown.clone();
             let adapter = adapter.clone();
             let name = name.to_owned();
-            let emit_name = name.clone();
-            let emit = Box::new(move |mut event: Event| {
-                event.source_adapter = Some(emit_name.clone());
-                let _ = tx.send(event);
+            let name2 = name.clone();
+            let emit = Box::new(move |event: AdapterEvent| {
+                if let Err(_e) = tx.send(AdapterEventWithName {
+                    adapter_name: name.clone(),
+                    event: event.clone(),
+                }) {
+                    tracing::error!("消息发送失败 {} {:?}", name, event)
+                }
             });
             tokio::spawn(async move {
                 if let Err(e) = adapter.start(emit, shutdown).await {
-                    tracing::error!("适配器 {} 启动失败: {}", name, e);
+                    tracing::error!("适配器 {} 启动失败: {}", name2, e);
                 }
             });
         }
@@ -155,34 +159,55 @@ impl BotApp {
         loop {
             tokio::select! {
                 Some(event) = event_rx.recv() => {
+                    let user_id = match &event.event {
+                        AdapterEvent::Message(ref m) => match &m.meta {
+                            MessageMeta::Private(ref p) => p.user_id.clone(),
+                        },
+                    };
+                    let text_snippet = match &event.event {
+                        AdapterEvent::Message(ref m) => {
+                            m.content.text.chars().take(20).collect::<String>()
+                        }
+                    };
                     let span = tracing::info_span!(
                         "event",
-                        event_id = %event.id,
-                        channel_id = %event.channel_id,
-                        platform = %event.platform,
+                        adapter_id = %event.adapter_name,
+                        user_id = %user_id,
+                        text = %text_snippet,
                     );
 
                     async {
                         tracing::debug!("收到事件");
-
-                        let lookup = event.source_adapter.as_deref().unwrap_or(&event.platform);
-                        let plugin_names = self.bindings.resolve(lookup, &event.channel_id);
+                        let adapt = event.adapter_name;
+                        let AdapterEvent::Message(m) = event.event.clone();
+                        let plugin_names = match m.meta {
+                            MessageMeta::Private(p) => {
+                                self.bindings.resolve(&adapt, &p.user_id)
+                            }
+                        };
                         tracing::debug!(
-                            "channel 绑定解析: {}@{} → {} 个插件",
-                            event.channel_id,
-                            lookup,
-                            plugin_names.len()
+                            user_id = %user_id,
+                            adapter = %adapt,
+                            plugins = plugin_names.len(),
+                            "channel 绑定解析"
                         );
 
                         if plugin_names.is_empty() {
-                            tracing::debug!("channel {} 无绑定插件", event.channel_id);
+                            tracing::debug!("channel 无绑定插件");
                             return;
                         }
 
-                        let actions = self.plugin_manager.dispatch_parallel(&event, &plugin_names).await;
+                        let actions = self
+                            .plugin_manager
+                            .dispatch_parallel(&event.event, &plugin_names)
+                            .await;
 
                         for action in actions {
-                            self.execute_action(action).await;
+                            self.execute_action(PluginEventWithName {
+                                adapter_name: adapt.clone(),
+                                event: action,
+                            })
+                            .await;
                         }
                     }
                     .instrument(span)
@@ -200,35 +225,34 @@ impl BotApp {
     }
 
     /// 执行单个 Action（如发消息）
-    async fn execute_action(&self, action: Action) {
-        match action {
-            Action::SendMessage { target, content } => {
-                let lookup_key = target
-                    .adapter_instance
-                    .as_deref()
-                    .unwrap_or(&target.platform);
+    async fn execute_action(&self, action: PluginEventWithName) {
+        match action.event {
+            PluginEvent::Message(e) => {
+                let user_id = match &e.meta {
+                    MessageMeta::Private(p) => p.user_id.clone(),
+                };
+                let text_snippet = e.content.text.chars().take(20).collect::<String>();
                 let span = tracing::info_span!(
                     "send_message",
-                    instance = %lookup_key,
-                    user_id = %target.user_id,
-                    text = %content.text.chars().take(20).collect::<String>(),
+                    instance = %action.adapter_name,
+                    user_id = %user_id,
+                    text = %text_snippet,
                 );
                 async {
-                    let adapter = self.adapters.get(lookup_key);
+                    let adapter = self.adapters.get(&action.adapter_name);
                     if let Some(adapter) = adapter {
-                        if let Err(e) = adapter.send_message(&target, &content).await {
+                        if let Err(e) = adapter.send_message(&e).await {
                             tracing::error!("发送消息失败: {}", e);
                         } else {
                             tracing::trace!("发送消息成功");
                         }
                     } else {
-                        tracing::warn!("未找到适配器实例 {}", lookup_key);
+                        tracing::warn!("未找到适配器实例 {}", action.adapter_name);
                     }
                 }
                 .instrument(span)
                 .await;
             }
-            Action::Noop => {}
         }
     }
 }

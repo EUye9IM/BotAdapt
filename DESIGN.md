@@ -92,16 +92,14 @@ src/
 ├── lib.rs
 ├── config/
 │   ├── mod.rs              # Config 结构体
-│   ├── parser.rs           # 配置解析 (toml)
-│   └── watcher.rs          # 配置热重载
+│   └── parser.rs           # 配置解析 (toml)
 ├── event/
-│   ├── mod.rs              # Event / MessageEvent 等统一类型
-│   └── bus.rs              # 广播 + 订阅
+│   └── mod.rs              # AdapterEvent / PluginEvent / MessageEvent 等统一类型
 ├── adapter/
 │   ├── mod.rs              # Adapter trait
 │   └── registry.rs         # Adapter 注册与查找 (按 name)
 ├── plugin/
-│   ├── mod.rs              # Plugin trait + Action
+│   ├── mod.rs              # Plugin trait
 │   ├── wasm/
 │   │   ├── mod.rs          # 模块入口
 │   │   ├── instance.rs     # PluginInstance: 加载 & 调用 + WasmPlugin 包装
@@ -117,15 +115,19 @@ src/
 ```rust
 #[async_trait]
 pub trait Adapter: Send + Sync {
-    /// self_name 为适配器在注册表中的名称（如 "default"），
-    /// 用于事件溯源（写入 Event.source_adapter）及日志标识。
-    async fn start(&self, self_name: String, tx: mpsc::Sender<Event>, shutdown: CancellationToken) -> Result<()>;
-    async fn send_message(&self, target: &MessageTarget, content: &MessageContent) -> Result<()>;
+    /// 启动适配器。emit 回调用于向 Core 发送事件。
+    async fn start(
+        &self,
+        emit: Box<dyn Fn(AdapterEvent) + Send + Sync + 'static>,
+        shutdown: CancellationToken,
+    ) -> anyhow::Result<()>;
+    /// 发送消息到平台
+    async fn send_message(&self, message: &MessageEvent) -> anyhow::Result<()>;
 }
 
 /// 适配器注册表按 name 查找 Adapter 实例
-/// 当插件调用 send_message 时，host 通过 MessageTarget.adapter_instance
-/// 在 AdapterRegistry 中找到对应 adapter，调用其 send_message。
+/// 当 Core 需要执行 PluginEvent（发送消息）时，
+/// 通过 PluginEventWithName.adapter_name 找到对应 adapter，调用其 send_message。
 ```
 
 ### 3.2 `botadapt-qq`
@@ -155,7 +157,7 @@ src/
 给插件开发者使用的库。编译目标为 `wasm32-wasip1`。
 
 ```rust
-// 用户插件代码示例（dice 插件实际实现）
+// 用户插件代码示例（dice 插件）
 use botadapt_plugin_sdk::prelude::*;
 
 // 导出 ABI 符号
@@ -163,9 +165,9 @@ use botadapt_plugin_sdk::prelude::*;
 
 #[no_mangle]
 pub extern "C" fn plugin_handle_event(event_ptr: i32, event_len: i32) -> i64 {
-    // 1. 从 wasm memory 读取 Event JSON
-    // 2. 解析消息文本，匹配命令（如 ndm）
-    // 3. 构造 Action JSON，写回 wasm memory
+    // 1. 从 wasm memory 读取 AdapterEvent JSON
+    // 2. 解析消息文本，匹配命令（如 3d6）
+    // 3. 构造 PluginEvent JSON，写回 wasm memory
     // 4. 返回 packed (ptr << 32 | len)
     todo!()
 }
@@ -173,26 +175,20 @@ pub extern "C" fn plugin_handle_event(event_ptr: i32, event_len: i32) -> i64 {
 
 ```
 src/
-├── lib.rs
+├── lib.rs                  # crate 入口，pub use types::*
+├── types.rs                # 统一类型定义
 ├── types/
-│   ├── event.rs            # Event (serde 序列化)
-│   ├── action.rs           # Action: SendMessage / Noop
-│   └── target.rs           # MessageTarget
+│   └── event.rs            # AdapterEvent / PluginEvent / MessageEvent (serde 序列化)
 ├── host_calls.rs           # extern "C" host 函数声明
-├── prelude.rs              # 统一重导出
-└── lib.rs
+└── prelude.rs              # 统一重导出
 ```
 
-**Action 类型**（纯副作用，无控制流语义）：
+**PluginEvent 类型**（插件产生的事件，Core 负责执行）：
 
 ```rust
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum Action {
-    SendMessage {
-        target: MessageTarget,
-        content: MessageContent,
-    },
-    Noop,
+pub enum PluginEvent {
+    Message(MessageEvent),
 }
 ```
 
@@ -214,85 +210,99 @@ async fn main() {
 
 统一事件是框架的**核心抽象**。
 
+### 4.1 AdapterEvent（Adapter → Core）
+
+Adapter 收到平台原始事件后，转换为 `AdapterEvent` 并通过 `emit` 回调发送给 Core：
+
 ```rust
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Event {
-    pub id: Uuid,
-    pub channel_id: String,         // channel 标识，格式: "{type}:{id}"
-                                    // 示例: "group:123456", "c2c:USER_OPENID"
-    pub platform: String,           // "qq" (平台标识，便于插件做差异逻辑)
-    pub source_adapter: Option<String>, // 产生事件的适配器 name
-    pub timestamp: i64,
-    pub kind: EventKind,
+pub enum AdapterEvent {
+    Message(MessageEvent),
 }
 ```
 
-**channel_id 的作用**：Core 根据 `event.channel_id` 查找 Channel Binding 表中该 channel 关联的插件列表，然后并行调用。
+Core 内部使用 `AdapterEventWithName` 包装来源 adapter 名称：
 
 ```rust
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum EventKind {
+pub struct AdapterEventWithName {
+    pub adapter_name: String,
+    pub event: AdapterEvent,
+}
+```
+
+### 4.2 PluginEvent（Plugin → Core）
+
+插件处理事件后返回 `PluginEvent`，Core 负责执行（如发送消息）：
+
+```rust
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum PluginEvent {
     Message(MessageEvent),
-    Notice(NoticeEvent),
-    Request(RequestEvent),
-    Meta(MetaEvent),
+}
+```
+
+Core 内部使用 `PluginEventWithName` 携带 adapter 名称以正确路由回复：
+
+```rust
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PluginEventWithName {
+    pub adapter_name: String,
+    pub event: PluginEvent,
+}
+```
+
+### 4.3 MessageEvent（统一消息体）
+
+AdapterEvent 和 PluginEvent 共用 `MessageEvent` 结构体：
+
+```rust
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MessageEvent {
+    pub meta: MessageMeta,
+    pub content: MessageContent,
+}
+```
+
+### 4.4 MessageMeta（消息来源元信息）
+
+```rust
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum MessageMeta {
+    Private(PrivateMeta),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MessageEvent {
+pub struct PrivateMeta {
     pub user_id: String,
-    pub group_id: Option<String>,
-    pub channel_id: Option<String>,
-    pub content: MessageContent,
-    pub raw: Option<serde_json::Value>,  // 原始 payload（透传）
 }
+```
 
+目前仅支持私聊（Private），群聊（Group）待后续扩展。
+
+### 4.5 MessageContent（消息内容）
+
+```rust
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MessageContent {
     pub text: String,
-    pub mentions: Vec<String>,
-    pub attachments: Vec<Attachment>,
 }
 ```
 
-### 消息回复目标
+### 4.6 channel_id 解析
 
-当插件要回复用户时，需要指定发送目标。`MessageTarget` 作为统一的回复地址：
+Core 收到 `AdapterEvent::Message` 后，从 `MessageMeta` 中提取标识，通过 `ChannelBinding::resolve(adapter_name, channel_id)` 查找绑定插件。目前私聊直接使用 `user_id` 解析，将来群聊会传入群 ID。
 
-```rust
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MessageTarget {
-    pub platform: String,               // "qq"
-    pub user_id: String,
-    pub group_id: Option<String>,       // 群聊时非空
-    pub channel_id: Option<String>,    // 频道消息时非空
-    pub adapter_instance: Option<String>, // 目标适配器 name（回退到 platform）
-}
-```
+### 4.7 消息发送路由
 
-当 host 收到插件的 send_message Action 时：
-1. 使用 `MessageTarget.adapter_instance`（fallback `platform`）在 `AdapterRegistry` 中查找对应 Adapter
-2. 调用 `adapter.send_message(target, content)` 发出
-
-核心查找逻辑：
-
-```rust
-// adapter/registry.rs
-pub struct AdapterRegistry {
-    adapters: HashMap<String, Arc<dyn Adapter>>,
-}
-
-impl AdapterRegistry {
-    pub fn register(&mut self, name: &str, adapter: Arc<dyn Adapter>) { ... }
-    pub fn get(&self, name: &str) -> Option<Arc<dyn Adapter>> { ... }
-    pub fn iter(&self) -> Iter<String, Arc<dyn Adapter>> { ... }
-}
-```
+当 Core 执行 `PluginEvent::Message` 时：
+1. 使用 `PluginEventWithName.adapter_name` 在 `AdapterRegistry` 中查找对应 Adapter
+2. 调用 `adapter.send_message(&message_event)` 发出
 
 这种设计的考虑：
-- **platform** 字段让插件可以感知来源，做差异逻辑
-- **raw** 字段做逃生口，防止事件模型抽象遗漏细节
-- **MessageContent** 标准化，但 `attachments` 保留扩展性
+- **Adapter 之间完全隔离**，事件通过 `adapter_name` 关联到来源
+- **类型简洁**：`MessageMeta` 按消息类型变体扩展，而非在单个结构体上堆 optional 字段
+- **插件无关平台**：插件只看统一事件类型，回复路由由 Core 根据来源 adapter_name 自动处理
 
 ---
 
@@ -315,9 +325,7 @@ impl AdapterRegistry {
 | 符号 | 签名 | 说明 |
 |------|------|------|
 | `plugin_version` | `() -> i32` | 返回 ABI 版本号 |
-| `plugin_init` | `(ptr: i32, len: i32) -> i32` | 初始化，接收 JSON 配置 |
 | `plugin_handle_event` | `(ptr: i32, len: i32) -> i64` | 处理事件，返回 packed (result_ptr << 32 \| result_len) |
-| `plugin_destroy` | `() -> ()` | 卸载前清理 |
 
 Host 函数（插件可以调用）：
 
@@ -325,7 +333,6 @@ Host 函数（插件可以调用）：
 |------|------|------|
 | `host_log` | `(level: i32, ptr: i32, len: i32)` | 日志输出 |
 | `host_get_config` | `(ptr: i32, len: i32) -> i32` | 读取插件配置 |
-| `host_send_message` | 暂未实现 | 后续迭代 |
 
 序列化采用 JSON（简单通用，在 wasm 边界上性能可接受）。
 
@@ -344,12 +351,12 @@ impl PluginManager {
     pub async fn reload(&mut self, name: &str) -> Result<()>;
 
     /// 并行分发事件给指定插件列表。各插件独立执行，互不影响。
-    /// 返回所有插件产生的 Action 集合，core 逐个执行。
+    /// 返回所有插件产生的 PluginEvent 集合，core 逐个执行。
     pub async fn dispatch_parallel(
         &self,
-        event: &Event,
-        plugin_names: &[String],
-    ) -> Vec<Action>;
+        event: &AdapterEvent,
+        names: &[String],
+    ) -> Vec<PluginEvent>;
 }
 ```
 
@@ -398,12 +405,17 @@ client_secret = "your_secret_here"
 
 # 声明该 adapter 下有哪些 channel，每个 channel 绑定哪些插件
 [[adapters.channels]]
-channel_id = "group:123456"
+channel_id = "*"
 plugins = ["builtin", "dice"]
 
-[[adapters.channels]]
-channel_id = "c2c:*"
-plugins = ["builtin"]
+# TODO: 待 MessageMeta 加入 Group 变体后启用
+# [[adapters.channels]]
+# channel_id = "c2c:USER_OPENID"
+# plugins = ["dice"]
+#
+# [[adapters.channels]]
+# channel_id = "group:123456"
+# plugins = ["builtin", "echo"]
 
 [[plugins]]
 name = "dice"
@@ -425,8 +437,10 @@ enabled = true
 channel_id 匹配规则：
 - 精确匹配优先于通配匹配
 - 同一个 channel 如果没有精确匹配，尝试 `"{type}:*"` 和 `"*"`
-- 绑定表按 adapter name 分组，事件通过 `source_adapter` 定位到对应 adapter 的绑定
+- 绑定表按 adapter name 分组，事件通过 `adapter_name` 定位到对应 adapter 的绑定
 - 一个 channel 可以绑定多个插件，全部并行执行
+
+注意：当前 channel_id 解析从 `MessageMeta` 提取。私聊场景直接使用 `user_id`（不包含 `:` 前缀），因此通配一般使用 `*` 即可。待 `MessageMeta::Group` 变体实现后，`c2c:*` / `group:*` 格式的通配才会生效。
 
 ### 6.2 配置热重载
 
@@ -465,28 +479,50 @@ Event Loop 核心：
 
 ```rust
 // core/src/lib.rs
-pub async fn run(self) -> Result<()> {
-    let (event_tx, mut event_rx) = mpsc::channel(1024);
+pub async fn run(self) -> anyhow::Result<()> {
+    let (event_tx, mut event_rx) = mpsc::unbounded_channel::<AdapterEventWithName>();
 
     for (name, adapter) in self.adapters.iter() {
-        adapter.start(name.clone(), event_tx.clone(), self.shutdown.clone()).await?;
+        let tx = event_tx.clone();
+        let shutdown = self.shutdown.clone();
+        let name = name.to_owned();
+        let emit = Box::new(move |event: AdapterEvent| {
+            if let Err(_e) = tx.send(AdapterEventWithName {
+                adapter_name: name.clone(),
+                event,
+            }) {
+                tracing::error!("事件发送失败 {} {:?}", name, event);
+            }
+        });
+        tokio::spawn(async move {
+            adapter.start(emit, shutdown).await;
+        });
     }
 
     loop {
         tokio::select! {
             Some(event) = event_rx.recv() => {
-                // 1. 根据 source_adapter 定位 adapter，查找 channel 绑定的插件
-                let lookup = event.source_adapter.as_deref().unwrap_or(&event.platform);
-                let plugin_names = self.bindings.resolve(lookup, &event.channel_id);
+                let adapt = event.adapter_name;
+                let AdapterEvent::Message(m) = event.event;
+
+                // 1. 从 MessageMeta 提取标识，查找 channel 绑定的插件
+                let plugin_names = match m.meta {
+                    MessageMeta::Private(p) => {
+                        self.bindings.resolve(&adapt, &p.user_id)
+                    }
+                };
 
                 // 2. 并行调用所有匹配的插件
-                let actions = self.plugin_manager
-                    .dispatch_parallel(&event, &plugin_names)
+                let events = self.plugin_manager
+                    .dispatch_parallel(&AdapterEvent::Message(m.clone()), &plugin_names)
                     .await;
 
-                // 3. 执行所有 Action（如发消息）
-                for action in actions {
-                    self.execute_action(action).await;
+                // 3. 执行所有 PluginEvent（如发消息）
+                for e in events {
+                    self.execute_action(PluginEventWithName {
+                        adapter_name: adapt.clone(),
+                        event: e,
+                    }).await;
                 }
             }
             _ = self.shutdown.cancelled() => break,
@@ -542,6 +578,7 @@ pub async fn run(self) -> Result<()> {
 | 序列化 | serde_json | 通用，Plugin ABI 也用它 |
 | 配置解析 | toml / figment | 可读性强 |
 | Wasm 引擎 | Wasmtime | 最成熟的 Rust Wasm runtime |
+| 随机数 | rand (WASI) | 插件内通过 WASI random_get 获取真随机数 |
 | 日志 | tracing | 异步感知，结构化 |
 | 文件监听 | notify | 跨平台，debounce 支持 |
 | 错误处理 | thiserror + color-eyre | 工程化错误展示 |
@@ -551,7 +588,7 @@ pub async fn run(self) -> Result<()> {
 ## 10. 设计原则
 
 1. **Adapter 薄，Core 厚**：特定平台的逻辑尽量收在 adapter 内，公共能力（插件管理、生命周期、channel 绑定）由 core 提供。
-2. **Plugin 无感知平台**：插件看到的是统一 Event，不需要知道来源是 QQ 还是 Discord。如确需差异，通过 `event.platform` 辨别。
+2. **Plugin 无感知平台**：插件看到的是统一 Event，不需要知道来源是 QQ 还是 Discord。如确需差异，可通过 plugin config 指定。
 3. **广播模型**：事件到达后，channel 绑定的所有插件并行执行，插件之间无依赖、无顺序。
 4. **零配置可用**：默认配置 minimal，只启动 core 静默等待。
 5. **优雅降级**：adapter 断线自动重连；单个插件崩溃不连累主进程，不影响同 channel 其他插件。

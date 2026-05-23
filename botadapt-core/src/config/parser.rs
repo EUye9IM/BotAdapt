@@ -1,15 +1,13 @@
 use std::path::Path;
 
-use crate::error::Result;
-
 use super::Config;
 
 impl Config {
-    pub fn from_file(path: impl AsRef<Path>) -> Result<Self> {
+    pub fn from_file(path: impl AsRef<Path>) -> anyhow::Result<Self> {
         let content = std::fs::read_to_string(path)?;
         let mut value: toml::Value = toml::from_str(&content)?;
         expand_value(&mut value);
-        let expanded = toml::to_string(&value).map_err(|e| crate::error::Error::Config(e.to_string()))?;
+        let expanded = toml::to_string(&value).map_err(|e| anyhow::anyhow!(e))?;
         let config: Config = toml::from_str(&expanded)?;
         Ok(config)
     }
@@ -95,29 +93,20 @@ mod tests {
     #[test]
     fn expand_var_default() {
         std::env::remove_var("TEST_NONEXIST2");
-        assert_eq!(
-            expand_env_vars("${TEST_NONEXIST2:-fallback}"),
-            "fallback"
-        );
+        assert_eq!(expand_env_vars("${TEST_NONEXIST2:-fallback}"), "fallback");
     }
 
     #[test]
     fn expand_var_default_with_existing() {
         std::env::set_var("TEST_EXPAND_B", "real");
-        assert_eq!(
-            expand_env_vars("${TEST_EXPAND_B:-fallback}"),
-            "real"
-        );
+        assert_eq!(expand_env_vars("${TEST_EXPAND_B:-fallback}"), "real");
     }
 
     #[test]
     fn expand_multiple_vars() {
         std::env::set_var("TEST_A", "a");
         std::env::set_var("TEST_B", "b");
-        assert_eq!(
-            expand_env_vars("${TEST_A}:${TEST_B}"),
-            "a:b"
-        );
+        assert_eq!(expand_env_vars("${TEST_A}:${TEST_B}"), "a:b");
     }
 
     #[test]

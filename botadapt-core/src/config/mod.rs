@@ -1,6 +1,7 @@
 pub mod parser;
 
 use serde::Deserialize;
+use serde_inline_default::serde_inline_default;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Config {
@@ -29,12 +30,12 @@ impl Default for CoreConfig {
 fn default_log_level() -> String {
     "info".into()
 }
-
+#[serde_inline_default]
 #[derive(Debug, Clone, Deserialize)]
 pub struct AdapterConfig {
     #[serde(rename = "type")]
     pub adapter_type: String,
-    #[serde(default = "default_enabled")]
+    #[serde_inline_default(true)]
     pub enabled: bool,
     pub name: String,
     #[serde(default)]
@@ -49,15 +50,11 @@ pub struct ChannelEntry {
     #[serde(default)]
     pub plugins: Vec<String>,
 }
-
+#[serde_inline_default]
 #[derive(Debug, Clone, Deserialize)]
 pub struct PluginConfig {
     pub name: String,
     pub path: String,
-    #[serde(default = "default_enabled")]
+    #[serde_inline_default(true)]
     pub enabled: bool,
-}
-
-fn default_enabled() -> bool {
-    true
 }

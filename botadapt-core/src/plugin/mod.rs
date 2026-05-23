@@ -1,31 +1,19 @@
 pub mod manager;
 pub mod native;
 pub mod wasm;
-
+use crate::event::{AdapterEvent, PluginEvent};
+use anyhow::Result;
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
-
-use crate::error::Result;
-use crate::event::{Event, MessageContent, MessageTarget};
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum Action {
-    SendMessage {
-        target: MessageTarget,
-        content: MessageContent,
-    },
-    Noop,
-}
 
 #[async_trait]
 pub trait Plugin: Send + Sync {
-    async fn handle_event(&self, event: Event) -> Result<Vec<Action>>;
+    async fn handle_event(&self, event: AdapterEvent) -> Result<Vec<PluginEvent>>;
 
-    async fn init(&self, _config: &serde_json::Value) -> Result<()> {
+    async fn init(&self, _config: &serde_json::Value) -> anyhow::Result<()> {
         Ok(())
     }
 
-    async fn destroy(&self) -> Result<()> {
+    async fn destroy(&self) -> anyhow::Result<()> {
         Ok(())
     }
 }

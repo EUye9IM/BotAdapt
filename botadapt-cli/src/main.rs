@@ -1,12 +1,12 @@
-use std::env;
 use std::sync::Arc;
-use std::time::Instant;
+use std::{env, vec};
 
 use tracing_subscriber::fmt::format::FmtSpan;
 
-use botadapt_core::event::MessageContent;
+use botadapt_core::event::{
+    AdapterEvent, MessageContent, MessageEvent, MessageMeta, PluginEvent, PrivateMeta,
+};
 use botadapt_core::plugin::native::{BuiltinCommand, BuiltinPlugin, CmdContext};
-use botadapt_core::plugin::Action;
 use botadapt_core::BotApp;
 use botadapt_qq::adapter::QQAdapter;
 use botadapt_qq::PLATFORM_ID;
@@ -15,15 +15,16 @@ fn builtin_commands() -> Vec<BuiltinCommand> {
     vec![BuiltinCommand {
         name: "ping",
         description: "回复 pong",
-        handler: Box::new(|_event, target, _args, _ctx| {
-            Ok(vec![Action::SendMessage {
-                target: target.clone(),
+        handler: Box::new(|event, _ctx| {
+            tracing::debug!("receive {:?}", event);
+            let AdapterEvent::Message(m) = event;
+            let MessageMeta::Private(p) = m.meta.clone();
+            Ok(vec![PluginEvent::Message(MessageEvent {
+                meta: MessageMeta::Private(PrivateMeta { user_id: p.user_id }),
                 content: MessageContent {
-                    text: "pong!".into(),
-                    mentions: vec![],
-                    attachments: vec![],
+                    text: "pong!".to_owned(),
                 },
-            }])
+            })])
         }),
     }]
 }
@@ -74,9 +75,7 @@ async fn main() {
         }
     }
 
-    let ctx = Arc::new(CmdContext {
-        start_time: Instant::now(),
-    });
+    let ctx = Arc::new(CmdContext {});
     let builtin = BuiltinPlugin::new(builtin_commands(), ctx);
     app.register_plugin("builtin", Box::new(builtin));
 

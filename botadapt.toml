@@ -12,16 +12,16 @@ client_secret = "${QQ_CLIENT_SECRET}"
 
 # 声明 channel 与插件绑定（channel_id 不需要平台前缀，已由所属 adapter 确定平台）
 [[adapters.channels]]
-channel_id = "c2c:*"
+channel_id = "*"
 plugins = ["builtin", "dice"]
 
-[[adapters.channels]]
-channel_id = "group:*"
-plugins = ["builtin", "dice"]
+# [[adapters.channels]]
+# channel_id = "group:*"
+# plugins = ["builtin", "dice"]
 
-[[adapters.channels]]
-channel_id = "group:123456"
-plugins = ["echo", "dice"]
+# [[adapters.channels]]
+# channel_id = "group:123456"
+# plugins = ["echo", "dice"]
 
 # --- 插件 ---
 [[plugins]]
