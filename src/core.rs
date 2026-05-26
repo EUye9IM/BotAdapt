@@ -7,7 +7,13 @@ use std::net::Shutdown;
 use bot::BotRegistry;
 use tokio::sync::mpsc;
 
-use crate::{core::events::BotEvent, platform};
+use crate::{
+    core::events::{
+        BotEvent::{self},
+        Message, MessageContent,
+    },
+    platform,
+};
 pub struct BotApp {
     cfg: config::Config,
     bots: BotRegistry,
@@ -115,66 +121,68 @@ impl BotApp {
     // }
 
     /// 启动事件循环
-    pub async fn run(&self) -> anyhow::Result<()> {
+    pub async fn run(&mut self) -> anyhow::Result<()> {
+        self.bots.run();
         loop {
-            // tokio::select! {
-            //     Some(event) = event_rx.recv() => {
-            //         let user_id = match &event.event {
-            //             AdapterEvent::Message(ref m) => match &m.meta {
-            //                 MessageMeta::Private(ref p) => p.user_id.clone(),
-            //             },
-            //         };
-            //         let text_snippet = match &event.event {
-            //             AdapterEvent::Message(ref m) => {
-            //                 m.content.text.chars().take(20).collect::<String>()
-            //             }
-            //         };
-            //         let span = tracing::info_span!(
-            //             "event",
-            //             adapter_id = %event.adapter_name,
-            //             user_id = %user_id,
-            //             text = %text_snippet,
-            //         );
+            tokio::select! {
+                Some((bid,evt)) = self.bots.recv_bot_evt() => {
+                    tracing::info!("receive");
+                    let span = tracing::info_span!(
+                        "event",
+                        %bid,
+                        ?evt,
+                    );
+                  if let Some(b) =  self.bots.get(bid.as_str()){
+                      b.send_message(
+                          &Message{
+                              target:"".to_owned(),
+                              target_type:"".to_owned(),
+                              content:MessageContent{
+                                  text:"pong".to_owned(),
+                              },
+                          },
+                      );
+                  }
 
-            //         async {
-            //             tracing::debug!("收到事件");
-            //             let adapt = event.adapter_name;
-            //             let AdapterEvent::Message(m) = event.event.clone();
-            //             let plugin_names = match m.meta {
-            //                 MessageMeta::Private(p) => {
-            //                     self.bindings.resolve(&adapt, &p.user_id)
-            //                 }
-            //             };
-            //             tracing::debug!(
-            //                 user_id = %user_id,
-            //                 adapter = %adapt,
-            //                 plugins = plugin_names.len(),
-            //                 "channel 绑定解析"
-            //             );
+                //     async {
+                //         tracing::debug!("收到事件");
+                //         let adapt = event.adapter_name;
+                //         let AdapterEvent::Message(m) = event.event.clone();
+                //         let plugin_names = match m.meta {
+                //             MessageMeta::Private(p) => {
+                //                 self.bindings.resolve(&adapt, &p.user_id)
+                //             }
+                //         };
+                //         tracing::debug!(
+                //             user_id = %user_id,
+                //             adapter = %adapt,
+                //             plugins = plugin_names.len(),
+                //             "channel 绑定解析"
+                //         );
 
-            //             if plugin_names.is_empty() {
-            //                 tracing::debug!("channel 无绑定插件");
-            //                 return;
-            //             }
+                //         if plugin_names.is_empty() {
+                //             tracing::debug!("channel 无绑定插件");
+                //             return;
+                //         }
 
-            //             let actions = self
-            //                 .plugin_manager
-            //                 .dispatch_parallel(&event.event, &plugin_names)
-            //                 .await;
+                //         let actions = self
+                //             .plugin_manager
+                //             .dispatch_parallel(&event.event, &plugin_names)
+                //             .await;
 
-            //             for action in actions {
-            //                 self.execute_action(PluginEventWithName {
-            //                     adapter_name: adapt.clone(),
-            //                     event: action,
-            //                 })
-            //                 .await;
-            //             }
-            //         }
-            //         .instrument(span)
-            //         .await;
-            //     }
-            //     _ = self.shutdown.cancelled() => break,
-            // }
+                //         for action in actions {
+                //             self.execute_action(PluginEventWithName {
+                //                 adapter_name: adapt.clone(),
+                //                 event: action,
+                //             })
+                //             .await;
+                //         }
+                //     }
+                //     .instrument(span)
+                //     .await;
+                }
+                _ = self.shutdown.cancelled() => break,
+            }
         }
 
         Ok(())

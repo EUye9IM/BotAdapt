@@ -1,4 +1,5 @@
 use clap::Parser;
+use tracing_subscriber::fmt::format::FmtSpan;
 mod args;
 mod core;
 mod platform;
@@ -13,7 +14,10 @@ async fn main() {
         }
     };
     let filter = tracing_subscriber::EnvFilter::new(&config.core.log_level);
-    tracing_subscriber::fmt().with_env_filter(filter).init();
+    tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .with_span_events(FmtSpan::NEW)
+        .init();
 
     tracing::info!("配置路径: {}", &arg.config);
     tracing::debug!("详细配置: {:?}", &config);

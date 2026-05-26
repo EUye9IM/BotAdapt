@@ -69,6 +69,9 @@ impl BotRegistry {
         }
         Ok(())
     }
+    pub async fn recv_bot_evt(&mut self) -> Option<(String, BotEvent)> {
+        self.rx.recv().await
+    }
 
     pub fn iter(&self) -> std::collections::hash_map::Iter<'_, String, Arc<dyn Bot>> {
         self.adapters.iter()

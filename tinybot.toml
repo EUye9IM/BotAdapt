@@ -1,9 +1,9 @@
 [core]
-log_level = "${RUST_LOG:-info}"
+log_level = "${RUST_LOG:-tinybot=trace}"
 
 [[bots]]
 id = "debug"
-platform = "debug"
+platform = "stdio"
 
 # [adapters.config]
 # app_id = "${QQ_APP_ID}"
