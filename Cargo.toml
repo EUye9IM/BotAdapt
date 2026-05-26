@@ -1,16 +1,10 @@
 [workspace]
 resolver = "2"
 members = [
-    "botadapt-core",
-    "botadapt-qq",
-    "botadapt-cli",
-    "botadapt-plugin-sdk",
-    "plugins/dice",
+    "tinybot"
 ]
 default-members = [
-    "botadapt-core",
-    "botadapt-qq",
-    "botadapt-cli",
+    "tinybot",
 ]
 
 [workspace.dependencies]
@@ -41,3 +35,4 @@ thiserror = "2"
 # wasm
 wasmtime = { version = "44", default-features = false, features = ["cranelift", "runtime"] }
 wasmtime-wasi = "44"
+clap = { version = "4", features = ["derive"] }
