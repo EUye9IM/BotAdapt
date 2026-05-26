@@ -1,0 +1,17 @@
+[package]
+name = "tinybot"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.102"
+async-trait = "0.1.89"
+clap = { version = "4.6.1", features = ["derive"] }
+serde = { version = "1.0.228", features = ["derive"] }
+serde-inline-default = "1.0.1"
+temp-env = "0.3.6"
+tokio = { version = "1.52.3", features = ["io-std", "io-util", "macros", "rt-multi-thread"] }
+tokio-util = "0.7.18"
+toml = "1.1.2"
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
