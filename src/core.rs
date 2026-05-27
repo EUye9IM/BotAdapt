@@ -1,24 +1,29 @@
+pub mod binding;
 pub mod bot;
 pub mod config;
 pub mod events;
-
-use std::net::Shutdown;
+pub mod session;
 
 use bot::BotRegistry;
-use tokio::sync::mpsc;
+use session::SessionMgr;
 
 use crate::{
-    core::events::{
-        BotEvent::{self},
-        Message, MessageContent,
+    core::{
+        binding::Bindings,
+        events::{
+            BotEvent::{self},
+            Message, MessageContent,
+        },
     },
     platform,
 };
 pub struct BotApp {
     cfg: config::Config,
     bots: BotRegistry,
+    bindings: Bindings,
+    session_mgr: SessionMgr,
+
     // plugin_manager: PluginManager,
-    // bindings: ChannelBinding,
     shutdown: tokio_util::sync::CancellationToken,
 }
 
@@ -27,8 +32,11 @@ impl BotApp {
     pub fn from_config(cfg: config::Config) -> Self {
         let shutdown = tokio_util::sync::CancellationToken::new();
         let mut app = Self {
-            cfg: cfg,
+            cfg: cfg.clone(),
             bots: BotRegistry::new(shutdown.clone()),
+            bindings: Bindings::new(cfg.bindings.clone()),
+            session_mgr: SessionMgr::new(cfg.clone()),
+
             shutdown: shutdown,
             // plugin_manager: PluginManager::new(),
             // bindings: ChannelBinding::new(),
@@ -132,6 +140,7 @@ impl BotApp {
                         %bid,
                         ?evt,
                     );
+
                   if let Some(b) =  self.bots.get(bid.as_str()){
                       b.send_message(
                           &Message{
@@ -141,7 +150,7 @@ impl BotApp {
                                   text:"pong".to_owned(),
                               },
                           },
-                      );
+                      ).await;
                   }
 
                 //     async {

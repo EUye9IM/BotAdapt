@@ -51,7 +51,7 @@ impl crate::core::bot::Bot for Bot {
     }
 
     async fn send_message(&self, msg: &Message) -> anyhow::Result<()> {
-        print!("{:?}", &msg.content);
+        println!("{}", &msg.content.text);
         Ok(())
     }
 }

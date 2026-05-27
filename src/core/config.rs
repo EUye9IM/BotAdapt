@@ -11,8 +11,8 @@ pub struct Config {
     pub bots: Vec<BotConfig>,
     // #[serde(default)]
     // pub plugins: Vec<PluginConfig>,
-    // #[serde(default)]
-    // pub routes: Vec<RouteConfig>,
+    #[serde(default)]
+    pub bindings: Vec<BindingConfig>,
 }
 
 impl Config {
@@ -43,4 +43,19 @@ pub struct BotConfig {
     pub enabled: bool,
     #[serde(default)]
     pub config: toml::Table,
+}
+
+#[serde_inline_default]
+#[derive(Debug, Clone, Deserialize)]
+pub struct BindingConfig {
+    #[serde_inline_default("*".into())]
+    pub botid: String,
+    #[serde_inline_default("*".into())]
+    pub target_type: String,
+    #[serde_inline_default("*".into())]
+    pub target_id: String,
+    #[serde_inline_default(true)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub plugins: Vec<String>,
 }
