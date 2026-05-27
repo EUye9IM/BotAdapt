@@ -6,7 +6,7 @@ id = "debug"
 platform = "stdio"
 
 [[bindings]]
-plugins = ["builtin"]
+plugins = ["*"]
 
 # [adapters.config]
 # app_id = "${QQ_APP_ID}"
