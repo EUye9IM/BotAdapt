@@ -38,7 +38,7 @@ impl BotApp {
             cfg: cfg.clone(),
             bots: BotRegistry::new(shutdown.clone()),
             bindings: Bindings::new(cfg.bindings.clone()),
-            session_mgr: SessionMgr::new(cfg.clone()),
+            session_mgr: SessionMgr::new(),
             plugin_mgr: plugin_mgr,
 
             shutdown: shutdown,
@@ -63,49 +63,85 @@ impl BotApp {
     /// 启动事件循环
     pub async fn run(&mut self) -> anyhow::Result<()> {
         let _ = self.bots.run();
+        let available_plugin: std::collections::HashSet<String> = self
+            .plugin_mgr
+            .names()
+            .into_iter()
+            .map(String::from)
+            .collect();
         loop {
             tokio::select! {
                 Some((bid, evt)) = self.bots.recv_bot_evt() => {
                     tracing::info!(bid, ?evt, "receive");
 
                     let BotEvent::Message(msg) = &evt;
-                    let available: std::collections::HashSet<String> = self.plugin_mgr
-                        .names()
-                        .into_iter()
-                        .map(String::from)
-                        .collect();
-                    tracing::info!(?available, ".");
-                    let plugin_names = self.bindings.get_plugin_list(
-                        &bid,
-                        &msg.target_type,
-                        &msg.target,
-                        available,
-                    );
-                    tracing::info!(?plugin_names, ".");
 
-                    for name in plugin_names {
-                        if self.plugin_mgr.is_active(&name, &evt) {
-                            if let Some(mut plugin) = self.plugin_mgr.get(&name) {
-                                match plugin.handle(&evt) {
-                                    Ok(action) => {
-                                        if !action.reply.text.is_empty() {
-                                            if let Some(bot) = self.bots.get(&bid) {
-                                                if let Err(e) = bot.send_message(
-                                                    &Message {
-                                                        target: msg.target.clone(),
-                                                        target_type: msg.target_type.clone(),
-                                                        content: action.reply,
-                                                    },
-                                                ).await {
-                                                    tracing::error!("发送消息失败: {}", e);
-                                                }
-                                            }
+                    if let Some(session) = self.session_mgr.get_session(&bid, &msg.target_type, &msg.target) {
+                        match session.plugin.handle(&evt) {
+                            Ok(action) => {
+                                if !action.reply.text.is_empty() {
+                                    if let Some(bot) = self.bots.get(&bid) {
+                                        if let Err(e) = bot.send_message(
+                                            &Message {
+                                                target: msg.target.clone(),
+                                                target_type: msg.target_type.clone(),
+                                                content: action.reply,
+                                            },
+                                        ).await {
+                                            tracing::error!("发送消息失败: {}", e);
                                         }
                                     }
-                                    Err(e) => {
-                                        tracing::error!("插件 {} 处理失败: {}", name, e);
+                                }
+                                if action.finish {
+                                    self.session_mgr.remove_session(&bid, &msg.target_type, &msg.target);
+                                }
+                            }
+                            Err(e) => {
+                                tracing::error!("会话插件处理失败: {}", e);
+                                self.session_mgr.remove_session(&bid, &msg.target_type, &msg.target);
+                            }
+                        }
+                    } else {
+                        let plugin_names = self.bindings.get_plugin_list(
+                            &bid,
+                            &msg.target_type,
+                            &msg.target,
+                            available_plugin.clone(),
+                        );
+
+                        for name in plugin_names {
+                            if self.plugin_mgr.is_active(&name, &evt) {
+                                if let Some(mut plugin) = self.plugin_mgr.get(&name) {
+                                    match plugin.handle(&evt) {
+                                        Ok(action) => {
+                                            if !action.reply.text.is_empty() {
+                                                if let Some(bot) = self.bots.get(&bid) {
+                                                    if let Err(e) = bot.send_message(
+                                                        &Message {
+                                                            target: msg.target.clone(),
+                                                            target_type: msg.target_type.clone(),
+                                                            content: action.reply,
+                                                        },
+                                                    ).await {
+                                                        tracing::error!("发送消息失败: {}", e);
+                                                    }
+                                                }
+                                            }
+                                            if !action.finish {
+                                                self.session_mgr.create_session(
+                                                    &bid,
+                                                    &msg.target_type,
+                                                    &msg.target,
+                                                    plugin,
+                                                );
+                                            }
+                                        }
+                                        Err(e) => {
+                                            tracing::error!("插件 {} 处理失败: {}", name, e);
+                                        }
                                     }
                                 }
+                                break;
                             }
                         }
                     }
