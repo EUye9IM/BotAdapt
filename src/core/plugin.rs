@@ -17,7 +17,7 @@ pub trait Plugin: Send {
 /// 插件返回的操作指令
 pub struct Action {
     pub finish: bool,
-    pub reply: events::MessageContent,
+    pub reply: Option<events::MessageContent>,
 }
 
 /// 插件管理器：全局持有所有插件工厂
