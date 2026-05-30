@@ -2,6 +2,7 @@ pub mod binding;
 pub mod bot;
 pub mod config;
 pub mod events;
+mod hello;
 pub mod plugin;
 pub mod session;
 
@@ -67,6 +68,7 @@ impl BotApp {
 
     pub async fn run(&mut self) -> anyhow::Result<()> {
         let _ = self.bots.run();
+        hello::register_builtins(&mut self.plugin_mgr);
         let available_plugin: std::collections::HashSet<String> = self
             .plugin_mgr
             .names()
@@ -86,6 +88,7 @@ impl BotApp {
                         Some(a) => Ok(a),
                         None => match self.session_mgr.get_session(&bid, &msg.target_type, &msg.target) {
                             Some(sess) => {
+                                tracing::debug!("get session");
                                 has_existing_session = true;
                                 sess.plugin.handle(&evt)
                             }
@@ -113,26 +116,30 @@ impl BotApp {
                             }
                         }
                     };
-
+                    tracing::debug!("{:?}",action);
                     match action {
                         Ok(a) => {
                             if let Some(content) = a.reply {
                                 if let Some(bot) = self.bots.get(&bid) {
-                                    if let Err(e) = bot.send_message(
-                                        &Message {
-                                            target: msg.target.clone(),
-                                            target_type: msg.target_type.clone(),
-                                            content: content,
-                                        },
-                                    ).await {
-                                        tracing::error!("发送消息失败: {}", e);
-                                    }
+                                    let bot = bot.clone();
+                                    let msg = Message {
+                                        target: msg.target.clone(),
+                                        target_type: msg.target_type.clone(),
+                                        content,
+                                    };
+                                    tokio::spawn(async move {
+                                        if let Err(e) = bot.send_message(&msg).await {
+                                            tracing::error!("发送消息失败: {}", e);
+                                        }
+                                    });
                                 }
                             }
                             if has_existing_session && a.finish {
+                                tracing::debug!("del session");
                                 self.session_mgr.remove_session(&bid, &msg.target_type, &msg.target);
                             } else if let Some(plugin) = new_plugin {
                                 if !a.finish {
+                                    tracing::debug!("new session");
                                     self.session_mgr.create_session(
                                         &bid,
                                         &msg.target_type,

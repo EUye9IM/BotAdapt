@@ -4,7 +4,6 @@ use crate::core::events::{self, BotEvent};
 
 /// 插件工厂：全局持有，负责创建插件实例
 pub trait PluginFactory: Send + Sync {
-    fn name(&self) -> &str;
     fn active(&self, evt: &BotEvent) -> bool;
     fn create(&self) -> anyhow::Result<Box<dyn Plugin>>;
 }
@@ -15,6 +14,7 @@ pub trait Plugin: Send {
 }
 
 /// 插件返回的操作指令
+#[derive(Debug)]
 pub struct Action {
     pub finish: bool,
     pub reply: Option<events::MessageContent>,
@@ -33,8 +33,8 @@ impl PluginManager {
     }
 
     /// 注册插件工厂
-    pub fn register(&mut self, factory: Box<dyn PluginFactory>) {
-        self.factories.insert(factory.name().to_owned(), factory);
+    pub fn register(&mut self, name: &str, factory: Box<dyn PluginFactory>) {
+        self.factories.insert(name.to_owned(), factory);
     }
 
     /// 返回所有已注册插件名称
