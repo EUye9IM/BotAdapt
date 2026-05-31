@@ -68,3 +68,71 @@ pub struct BindingConfig {
     #[serde(default)]
     pub plugins: Vec<String>,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn plugin_config_defaults_enabled_to_true() {
+        let toml_str = r#"
+            name = "test"
+            path = "./test.wasm"
+        "#;
+        let cfg: PluginConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(cfg.name, "test");
+        assert_eq!(cfg.path, "./test.wasm");
+        assert!(cfg.enabled);
+    }
+
+    #[test]
+    fn plugin_config_explicit_disabled() {
+        let toml_str = r#"
+            name = "test"
+            path = "./test.wasm"
+            enabled = false
+        "#;
+        let cfg: PluginConfig = toml::from_str(toml_str).unwrap();
+        assert!(!cfg.enabled);
+    }
+
+    #[test]
+    fn binding_config_defaults() {
+        let toml_str = r#"
+            plugins = ["hello"]
+        "#;
+        let cfg: BindingConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(cfg.botid, "*");
+        assert_eq!(cfg.target_type, "*");
+        assert_eq!(cfg.target_id, "*");
+        assert!(cfg.enabled);
+        assert_eq!(cfg.plugins, vec!["hello"]);
+    }
+
+    #[test]
+    fn full_config_with_plugins() {
+        let toml_str = r#"
+            [core]
+            log_level = "debug"
+
+            [[bots]]
+            id = "bot1"
+            platform = "stdio"
+
+            [[plugins]]
+            name = "hello"
+            path = "./hello.wasm"
+
+            [[bindings]]
+            plugins = ["*"]
+        "#;
+        let mut value: toml::Value = toml::from_str(toml_str).unwrap();
+        parser::expand_value(&mut value);
+        let config: Config = value.try_into().unwrap();
+        assert_eq!(config.core.log_level, "debug");
+        assert_eq!(config.bots.len(), 1);
+        assert_eq!(config.plugins.len(), 1);
+        assert_eq!(config.plugins[0].name, "hello");
+        assert_eq!(config.bindings.len(), 1);
+    }
+}
