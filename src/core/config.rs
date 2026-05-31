@@ -9,8 +9,8 @@ pub struct Config {
     pub core: CoreConfig,
     #[serde(default)]
     pub bots: Vec<BotConfig>,
-    // #[serde(default)]
-    // pub plugins: Vec<PluginConfig>,
+    #[serde(default)]
+    pub plugins: Vec<PluginConfig>,
     #[serde(default)]
     pub bindings: Vec<BindingConfig>,
 }
@@ -43,6 +43,15 @@ pub struct BotConfig {
     pub enabled: bool,
     #[serde(default)]
     pub config: toml::Table,
+}
+
+#[serde_inline_default]
+#[derive(Debug, Clone, Deserialize)]
+pub struct PluginConfig {
+    pub name: String,
+    pub path: String,
+    #[serde_inline_default(true)]
+    pub enabled: bool,
 }
 
 #[serde_inline_default]

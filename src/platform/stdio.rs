@@ -8,7 +8,7 @@ pub const PLAT: &str = "stdio";
 // 测试接口，从标准输入输出读写
 pub struct Bot {}
 impl Bot {
-    pub fn new(cfg: &toml::Table) -> anyhow::Result<Self> {
+    pub fn new(_cfg: &toml::Table) -> anyhow::Result<Self> {
         return Ok(Bot {});
     }
 }

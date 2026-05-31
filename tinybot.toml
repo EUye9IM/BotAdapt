@@ -26,17 +26,7 @@ plugins = ["*"]
 # plugins = ["echo", "dice"]
 
 # --- 插件 ---
-# [[plugins]]
-# name = "dice"
-# path = "./plugins/dice.wasm"
-# enabled = true
-
-# [[plugins]]
-# name = "echo"
-# path = "./plugins/echo.wasm"
-# enabled = false
-
-# [[plugins]]
-# name = "admin"
-# path = "./plugins/admin.wasm"
-# enabled = false
+[[plugins]]
+name = "hello"
+path = "./plugins/hello/target/wasm32-wasip2/debug/hello.wasm"
+enabled = true

@@ -2,9 +2,9 @@ pub mod binding;
 pub mod bot;
 pub mod config;
 pub mod events;
-mod hello;
 pub mod plugin;
 pub mod session;
+pub mod wasm;
 
 use bot::BotRegistry;
 use plugin::{Action, PluginManager};
@@ -44,10 +44,23 @@ impl BotApp {
             }
             match platform::new_bot_from_config(bot_cfg) {
                 Ok(adapter) => {
-                    app.bots.register(&bot_cfg.id, adapter);
+                    let _ = app.bots.register(&bot_cfg.id, adapter);
                     tracing::info!(name = bot_cfg.id, "Bot创建成功");
                 }
                 Err(e) => tracing::error!("创建Bot失败：{}", e),
+            }
+        }
+        for plugin_cfg in &app.cfg.plugins {
+            if !plugin_cfg.enabled {
+                continue;
+            }
+            match wasm::WasmPluginFactory::from_file(&plugin_cfg.path) {
+                Ok(factory) => {
+                    app.plugin_mgr
+                        .register(&plugin_cfg.name, Box::new(factory));
+                    tracing::info!(name = plugin_cfg.name, path = plugin_cfg.path, "wasm 插件加载成功");
+                }
+                Err(e) => tracing::error!(name = plugin_cfg.name, "加载 wasm 插件失败: {}", e),
             }
         }
         app
@@ -68,7 +81,6 @@ impl BotApp {
 
     pub async fn run(&mut self) -> anyhow::Result<()> {
         let _ = self.bots.run();
-        hello::register_builtins(&mut self.plugin_mgr);
         let available_plugin: std::collections::HashSet<String> = self
             .plugin_mgr
             .names()

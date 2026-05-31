@@ -16,3 +16,4 @@ tokio-util = "0.7.18"
 toml = "1.1.2"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+wasmtime = { version = "45", features = ["component-model"] }
